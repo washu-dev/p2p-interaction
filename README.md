@@ -1,166 +1,100 @@
-# P2P Interaction: A Digital Framework for Selective Targeting of Undruggable Protein–Protein Interactions
+# BindCraft GUI
 
-## Overview
+A web front-end for the full binder-design + selectivity pipeline. A user
+uploads a target (`.pdb` or `.fasta`), sets BindCraft parameters in the browser,
+and the backend runs the staged pipeline on the cluster, streaming per-stage
+progress back and showing the final **ipTM-vs-kinase** plot. Identical re-runs
+are served instantly from a result cache.
 
-This project develops an **AI-driven computational framework** that integrates structure prediction, interface modeling, and generative protein design to create **paralog-selective inhibitors** of disease-relevant protein–protein interactions (PPIs).
+```
+Browser (any laptop)
+      │  REST + polling (one origin)
+      ▼
+FastAPI backend  ──► SQLite (job tracking + dedup cache)
+ (login node)    │
+                 ├─ mock runner   → simulates the chain on a laptop (dev)
+                 └─ slurm runner  → one sbatch per stage, chained afterok
+```
 
-**Project ID**: #1961  
-**Competition**: Digital Transformation Research Corps (AY2025-2026)
+## The pipeline (per job)
 
-## Research Team
+| Stage     | Runs when            | Script                          | Produces        |
+|-----------|----------------------|---------------------------------|-----------------|
+| **fold**  | a FASTA was uploaded | `pipeline/fold_target.sbatch.tmpl` (ColabFold) | `target.pdb` |
+| **design**| always               | `pipeline/bindcraft.sbatch.tmpl` (BindCraft)   | `top_binder.pdb` (top-ranked, via `select_top_binder.py`) |
+| **profile**| always              | `pipeline/profile.sbatch.tmpl` (`pdb2fasta.py` → ColabFold → `ipTM2graph.py`) | `result.png` |
 
-- **PI**: Robi Mitra, MD, PhD | School of Medicine | [rmitra@wustl.edu](mailto:rmitra@wustl.edu)
-- **Co-PI**: Jeff Milbrandt, MD, PhD | School of Medicine | [jmilbrandt@wustl.edu](mailto:jmilbrandt@wustl.edu)
-- **Mentoring Team**: McDonnell Genome Institute's Biominer computational biology team (2 PhD-level scientists + 1 software engineer)
+A PDB upload skips **fold** (2 stages); a FASTA upload runs all 3. Stages are
+chained with `--dependency=afterok` in SLURM mode and run in series in mock mode.
 
----
+BindCraft settings entered in the GUI (binder name, chains, hotspots, length
+range, # designs) are written to a per-job `settings_target.json`; the filter
+and advanced presets are picked from your existing `settings_filters/` and
+`settings_advanced/` directories.
 
-## Project Abstract
+## Quick start (laptop, mock mode)
 
-Many disease-critical protein–protein interactions remain **undruggable** because they involve extended binding interfaces that are difficult to disrupt using conventional small-molecule approaches. This challenge is further compounded by the prevalence of closely related paralogous proteins that demand high target selectivity.
+No cluster needed — simulates each stage and returns the repo's sample artifacts.
 
-Recent advances in protein structure prediction (AlphaFold) and generative protein design now enable the computational design of peptide and miniprotein inhibitors that specifically bind their targets with high affinities. This project creates an AI-driven computational framework that enables **precise modulation of disease-relevant cellular signaling pathways** while minimizing off-target effects.
+```powershell
+cd gui
+./run_dev.ps1
+```
+Open http://127.0.0.1:8000 → upload `example/PDL1.pdb` (or a `.fasta`), set
+params, **Run pipeline**. Watch the stage dots light up and the plot appear.
+Submit the same file+settings again to see the cache prompt.
 
-### Disease Focus: Amyotrophic Lateral Sclerosis (ALS)
+## Cluster (real SLURM)
 
-As a biologically rigorous test case, we focus on the **LATS2–TDP-43 interaction** in ALS:
-- Cytoplasmic mislocalization of TDP-43 is the central molecular defect in nearly all ALS cases
-- LATS2 directly phosphorylates TDP-43, driving pathological mislocalization
-- Selective disruption of LATS2 (but not its paralog LATS1) reverses neuronal pathology
-- Provides demanding but highly relevant benchmark for paralog-selective inhibitor design
+On the **login node**:
 
----
+```bash
+cd gui
+./run_cluster.sh        # sets BINDGUI_BACKEND=slurm
+```
+Then users browse to `http://<login-node>:8000` (or SSH-tunnel:
+`ssh -L 8000:localhost:8000 you@login-node`).
 
-## Specific Aims
+Point the env vars in `run_cluster.sh` / `backend/config.py` at your paths:
 
-### Aim 1: Develop an AI-Driven Computational Framework for Paralog-Selective PPI Inhibition
+| Env var                     | What it is                                   |
+|-----------------------------|----------------------------------------------|
+| `BINDGUI_BINDCRAFT_DIR`     | BindCraft checkout (has bindcraft.py + settings dirs) |
+| `BINDGUI_TARGET_FASTA_DIR`  | dir of `<kinase>.fasta` for the selectivity panel |
+| `BINDGUI_COLABFOLD_BIN`     | dir containing `colabfold_batch`             |
+| `BINDGUI_MICROMAMBA_ENV`    | micromamba env name for BindCraft            |
+| `BINDGUI_SLURM_ACCOUNT` / `_PARTITION` | SLURM account / partition         |
 
-**Objective**: Develop and implement a computational pipeline integrating:
-1. Structure prediction
-2. Interface modeling
-3. Generative protein design
+## API
 
-**Deliverables** (10-week timeline):
-- ✅ Reusable computational pipeline for paralog-selective PPI inhibitor design
-- ✅ Set of high-confidence peptide and miniprotein candidate inhibitors
-- ✅ Quantitative in silico metrics supporting predicted specificity
-- ✅ Top 30 designs synthesized and experimentally validated in established ALS models
+| Method | Path                        | Purpose                                   |
+|--------|-----------------------------|-------------------------------------------|
+| GET    | `/api/config`               | mode + filter/advanced presets + kinases  |
+| POST   | `/api/jobs`                 | multipart: target file + JSON `payload`; returns `cache_hit` if dup |
+| GET    | `/api/jobs`                 | list runs (live status + stages)          |
+| GET    | `/api/jobs/{id}`            | one run                                   |
+| GET    | `/api/jobs/{id}/result.png` | the ipTM-vs-kinase plot                   |
+| GET    | `/api/jobs/{id}/logs`       | per-stage logs                            |
+| POST   | `/api/jobs/{id}/cancel`     | cancel remaining stages                   |
 
----
+## Caching / dedup
 
-## Research Plan: Four Main Tasks
+Each run is keyed by `sha256(uploaded_file_bytes + settings)`. On submit, an
+identical **COMPLETED** run is offered back (`cache_hit`); the user picks *Use
+existing result* or *Run again* (`force: true`).
 
-### Task 1: Structure Prediction and Modeling
-- Generate structural models of LATS2–TDP-43 interaction using **AlphaFold-Multimer** (ColabFold)
-- Model LATS1 in parallel to explicitly address paralog selectivity
-- Analyze interface properties (contact residues, buried surface area, energetic contributions) using **PyRosetta**
-- **Outcome**: High-confidence interface models with residue-level annotations defining targetable regions
+## Cluster bits to verify (can't be tested off-cluster)
 
-### Task 2: Generative Design of Inhibitory Peptides and Miniproteins
-- Structure-guided design using **Rosetta-based** protocols (peptide docking, binder design)
-- Sequence optimization using **ProteinMPNN** (neural network-based tool)
-- Benchmark **RFdiffusion** diffusion-based approaches against Rosetta designs
-- Generate multiple design families to mitigate model uncertainty
-- **Outcome**: Diverse set of candidate peptide and miniprotein designs
+These templates encode reasonable defaults but depend on your environment:
+- **fold**: which ColabFold output is the rank-1 model (`*rank_001*.pdb` glob).
+- **design**: micromamba activation + `CONDA_BASE` path in `bindcraft.sbatch.tmpl`.
+- **design**: how the top binder is chosen — `select_top_binder.py` reads
+  `final_design_stats.csv` (best-first) and falls back to newest in `Accepted/`.
+  Confirm your column name / output layout.
 
-### Task 3: In Silico Scoring and Paralog Selectivity Assessment
-- Evaluate candidates using quantitative, structure-based scoring metrics
-- Assess predicted binding affinity, interface stability, structural plausibility
-- **Cross-dock** top candidates against LATS1 for direct LATS2 vs. LATS1 comparison
-- Rank designs based on combined **affinity–selectivity criteria**
-- Create "design cards" for each shortlisted candidate
-- **Outcome**: Ranked shortlist with selectivity metrics and design rationales
+## Next steps (not yet wired)
 
-### Task 4: Pipeline Packaging and Deliverables
-- Package end-to-end workflow with tool versions, parameters, and data provenance
-- **Deliverables**:
-  - Documented, reproducible computational pipeline
-  - Ranked shortlist of high-confidence inhibitors
-  - Synthesis-ready sequences and specifications
-- Experimental validation: Synthesize and evaluate ~30 top-ranked designs in human iPSC-derived motor neuron assays
-
----
-
-## Timeline
-
-| Weeks | Focus |
-|-------|-------|
-| 1–2 | Tool familiarization, benchmarking, interface modeling |
-| 3–6 | Generative design and iteration |
-| 7–9 | Scoring, selectivity analysis, prioritization |
-| 10 | Pipeline finalization and experimental handoff |
-
----
-
-## Key Innovation
-
-This project is innovative at multiple levels:
-
-1. **Conceptual**: Reframes paralog-selective PPI inhibition as a computational design problem
-2. **Technical**: Integrates structure prediction, interface modeling, generative design, and selectivity-aware scoring into a unified AI-driven pipeline
-3. **Translational**: Delivers experimentally testable peptide and miniprotein inhibitors evaluated in disease-relevant human neuron models
-
-**Broader Impact**: Establishes a generalizable framework for selectively targeting previously undruggable protein–protein interactions beyond ALS.
-
----
-
-## Student Learning Outcomes
-
-Students will gain hands-on experience with:
-- ✨ Modern AI and structure-based protein design tools
-- 🔬 Reproducible computational research practices
-- 🧬 Translation of computational predictions into experimentally testable hypotheses
-- 💻 High-performance computing (HTCF cluster access)
-- 🤝 Collaborative research in a mentored environment
-
----
-
-## Mentoring & Resources
-
-- **Weekly meetings** with PIs Rob Mitra and Jeff Milbrandt
-- **Embedded support** from McDonnell Genome Institute's Biominer team:
-  - 2 PhD-level computational biologists
-  - 1 experienced software engineer and tool developer
-- **High-performance compute access**: Center for Genome Science HTCF cluster
-- **Domain expertise**: Milbrandt and Mitra lab biological expertise
-
----
-
-## Future Directions & Funding
-
-**External funding targets** upon program completion:
-- 🏥 NIH grants
-- 💰 Philanthropic funding sources
-
-**Broader applications**: Framework can be applied to other disease-critical interactions where paralog selectivity has limited therapeutic progress, positioning us to pursue external funding and scale across biomedical applications.
-
----
-
-## Computational Tools
-
-- **AlphaFold-Multimer** / **ColabFold** — protein structure prediction
-- **PyRosetta** — interface analysis and design
-- **Rosetta** — structure-guided protein design
-- **ProteinMPNN** — neural network-based sequence design
-- **RFdiffusion** — diffusion-based generative design
-
-## Experimental Assays
-
-- Human iPSC-derived motor neuron models
-- TDP-43 localization readouts
-- Downstream splicing defect measurement
-- Neuronal survival quantification
-
----
-
-## Contact
-
-For questions or collaboration inquiries:
-- **Robi Mitra**: [rmitra@wustl.edu](mailto:rmitra@wustl.edu)
-- **Jeff Milbrandt**: [jmilbrandt@wustl.edu](mailto:jmilbrandt@wustl.edu)
-
----
-
-**Last Updated**: June 2, 2026  
-**Submission Date**: January 15, 2026  
-**Cycle**: AY2025-2026 Digital Transformation Research Corps
+- PDB chain selection UI (currently fixed by the `chains` field).
+- Auth + per-user run history (one shared list today).
+- Parallelize the profile fold as a SLURM array + dependent plot job.
+- Live log streaming (WebSocket) instead of on-demand fetch.
