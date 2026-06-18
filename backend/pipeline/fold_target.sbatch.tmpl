@@ -1,0 +1,34 @@
+#!/bin/bash
+#SBATCH -J __JOBNAME__
+#SBATCH -p __PARTITION__
+#SBATCH -A __ACCOUNT__
+#SBATCH --gres=gpu:H100:1
+#SBATCH --mem-per-gpu=80G
+#SBATCH --time=04:00:00
+#SBATCH -o __JOBDIR__/fold.log
+
+# Stage 1 (optional): fold an uploaded target FASTA into a PDB for BindCraft.
+set -euo pipefail
+JOBDIR="__JOBDIR__"
+cd "$JOBDIR"
+export PATH="__COLABFOLD_BIN__:${PATH}"
+
+echo "[fold] $(date) folding target.fasta"
+colabfold_batch \
+    --num-recycle 3 \
+    --templates \
+    --num-models 5 \
+    --model-order 1,2,3,4,5 \
+    --random-seed 0 \
+    "$JOBDIR/target.fasta" \
+    "$JOBDIR/fold_out"
+
+# Promote the rank-1 model to target.pdb for the design stage.
+TOP=$(ls "$JOBDIR"/fold_out/*_relaxed_rank_001_*.pdb 2>/dev/null | head -n1 || true)
+[ -z "$TOP" ] && TOP=$(ls "$JOBDIR"/fold_out/*rank_001*.pdb 2>/dev/null | head -n1 || true)
+if [ -z "$TOP" ]; then
+    echo "[fold] ERROR: no rank_001 PDB produced" >&2
+    exit 1
+fi
+cp "$TOP" "$JOBDIR/target.pdb"
+echo "[fold] $(date) done -> target.pdb ($TOP)"

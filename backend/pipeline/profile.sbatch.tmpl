@@ -1,0 +1,50 @@
+#!/bin/bash
+#SBATCH -J __JOBNAME__
+#SBATCH -p __PARTITION__
+#SBATCH -A __ACCOUNT__
+#SBATCH --gres=gpu:H100:1
+#SBATCH --mem-per-gpu=80G
+#SBATCH --time=08:00:00
+#SBATCH -o __JOBDIR__/profile.log
+
+# Stage 3: selectivity profiling of the top binder against the kinase panel.
+#   pdb2fasta.py  -> target:binder complex FASTAs
+#   colabfold     -> ipTM per complex
+#   ipTM2graph.py -> result.png (ipTM vs kinase)
+set -euo pipefail
+JOBDIR="__JOBDIR__"
+cd "$JOBDIR"
+export PATH="__COLABFOLD_BIN__:${PATH}"
+
+echo "[profile] $(date) building complexes from top_binder.pdb"
+python "__PIPELINE_DIR__/pdb2fasta.py" \
+    "$JOBDIR/top_binder.pdb" \
+    "__TARGET_FASTA_DIR__" \
+    "$JOBDIR/complex"
+
+BINDER_BASE=$(basename "$JOBDIR/top_binder.pdb" .pdb)
+COMPLEX_DIR="$JOBDIR/complex/$BINDER_BASE"
+LIST="$COMPLEX_DIR/${BINDER_BASE}_list.txt"
+
+# Subset to the kinases the user selected in the GUI (if any).
+if [ -s "$JOBDIR/targets.txt" ]; then
+    grep -F -f <(sed 's/$/_vs_/' "$JOBDIR/targets.txt") "$LIST" > "$LIST.sel" || true
+    [ -s "$LIST.sel" ] && mv "$LIST.sel" "$LIST"
+fi
+
+while read -r ENTRY; do
+    [ -z "$ENTRY" ] && continue
+    echo "[profile] $(date) folding $ENTRY"
+    colabfold_batch \
+        --num-recycle 3 --templates --num-models 5 \
+        --model-order 1,2,3,4,5 --random-seed 0 \
+        "$COMPLEX_DIR/${ENTRY}.fasta" "$COMPLEX_DIR/${ENTRY}"
+    tail -n6 "$COMPLEX_DIR/${ENTRY}/log.txt" | head -n5 \
+        | grep -o 'ipTM=[0-9.]*' | cut -d '=' -f2 \
+        > "$COMPLEX_DIR/${ENTRY}/ipTM_data.txt"
+done < "$LIST"
+
+echo "[profile] $(date) plotting"
+python "__PIPELINE_DIR__/ipTM2graph.py" "$LIST"
+cp "$COMPLEX_DIR"/iptm_best_*.png "$JOBDIR/result.png"
+echo "[profile] $(date) done -> result.png"

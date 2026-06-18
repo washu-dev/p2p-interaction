@@ -7,14 +7,24 @@ progress back and showing the final **ipTM-vs-kinase** plot. Identical re-runs
 are served instantly from a result cache.
 
 ```
-Browser (any laptop)
-      │  REST + polling (one origin)
-      ▼
-FastAPI backend  ──► SQLite (job tracking + dedup cache)
- (login node)    │
-                 ├─ mock runner   → simulates the chain on a laptop (dev)
-                 └─ slurm runner  → one sbatch per stage, chained afterok
+Browser ──login──► WashU SSO (Entra)        target architecture (see docs/)
+   │ Bearer JWT
+   ▼
+React SPA ─REST(+token)─► FastAPI ──┐        (SPA + API hosted on AWS)
+                                    │ runner:
+                ┌───────────────────┼─────────────────────────────────┐
+                │ mock  → simulate on a laptop (dev)                    │
+                │ slurm → local sbatch (backend ON the login node)      │
+                │ ssh   → Paramiko/RSA to login node (backend on AWS) ◄─┘ target
+                └───────────────────┴─────────────────────────────────┘
+                                    ▼
+                       RIS login node → SLURM → compute2 / storage1
 ```
+
+> **Architecture & setup docs:** see [`docs/`](docs/00-overview.md) —
+> connectivity (VPN/firewall), authentication (RSA key + Entra SSO), the SSH
+> runner, frontend SSO, AWS deployment, and the [TODO checklist](docs/TODO.md).
+> The `mock`/`slurm` modes below work today; `ssh`+SSO is the target design.
 
 ## The pipeline (per job)
 
@@ -43,6 +53,16 @@ cd gui
 Open http://127.0.0.1:8000 → upload `example/PDL1.pdb` (or a `.fasta`), set
 params, **Run pipeline**. Watch the stage dots light up and the plot appear.
 Submit the same file+settings again to see the cache prompt.
+
+### Frontend (React) — `gui/web/`
+The UI is a **React + TypeScript (Vite)** app. FastAPI serves the built bundle
+(`web/dist`) when present, else the buildless `frontend/index.html`.
+
+```bash
+cd gui/web && npm install && npm run build   # one-time / on change → web/dist
+# hot-reload dev (proxies /api → :8000):  npm run dev   → http://localhost:5173
+```
+See [docs/04-frontend-sso.md](docs/04-frontend-sso.md).
 
 ## Cluster (real SLURM)
 

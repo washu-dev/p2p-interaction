@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BindCraft · Selective Binder Platform</title>
+<style>
+  :root {
+    --indigo:#4f46e5; --indigo2:#4338ca; --blue:#1d4ed8; --violet:#6d28d9;
+    --ink:#0f172a; --text:#1e293b; --muted:#64748b; --line:#e2e8f0;
+    --card:#ffffff; --chipbg:#eef2ff; --chipfg:#4338ca;
+    --green:#16a34a; --greenbg:#dcfce7; --red:#dc2626; --redbg:#fee2e2;
+    --amber:#b45309; --amberbg:#fef3c7;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; color:var(--text);
+    font:14.5px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:
+      radial-gradient(circle at 88% 5%, rgba(124,58,237,.08), transparent 24rem),
+      radial-gradient(circle at 18% 0%, rgba(37,99,235,.08), transparent 27rem),
+      #f8fafc;
+    min-height:100vh;
+  }
+  .layout { display:grid; grid-template-columns:262px 1fr; min-height:100vh; }
+
+  /* Sidebar */
+  aside {
+    background:linear-gradient(180deg,#0f172a 0%,#172554 100%);
+    color:#f8fafc; padding:22px 16px; display:flex; flex-direction:column; gap:6px;
+  }
+  aside h2 { margin:0; font-size:18px; }
+  aside .tag { font-size:12px; color:#c7d2fe; margin-bottom:4px; }
+  aside hr { border:0; border-top:1px solid rgba(255,255,255,.12); margin:14px 0; width:100%; }
+  .navbtn {
+    width:100%; text-align:left; padding:9px 12px; border-radius:10px; cursor:pointer;
+    border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06);
+    color:#e5e9f5; font:inherit; font-size:13.5px; display:flex; gap:9px; align-items:center;
+  }
+  .navbtn:hover { border-color:#818cf8; background:rgba(99,102,241,.22); }
+  .navbtn.active { background:linear-gradient(120deg,var(--blue),var(--violet)); border-color:transparent; color:#fff; font-weight:600; }
+  .navbtn .n { width:20px; height:20px; border-radius:50%; background:rgba(255,255,255,.15);
+    display:grid; place-items:center; font-size:11px; flex:none; }
+  .navbtn.done .n { background:var(--green); }
+  .status { font-size:12.5px; color:#cbd5e1; }
+  .status b { color:#fff; }
+  .mode { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.12); color:#e0e7ff; }
+  .ghostlite { background:transparent; border:1px solid rgba(255,255,255,.2); color:#e5e9f5;
+    padding:8px 12px; border-radius:10px; cursor:pointer; font:inherit; width:100%; }
+  .ghostlite:hover { background:rgba(255,255,255,.08); }
+  .runrow { font-size:12.5px; padding:6px 8px; border-radius:8px; cursor:pointer; display:flex;
+    justify-content:space-between; gap:6px; }
+  .runrow:hover { background:rgba(255,255,255,.08); }
+
+  /* Main */
+  main { padding:32px 40px; max-width:1080px; }
+  .chip { display:inline-block; padding:.24rem .6rem; border-radius:999px; color:var(--chipfg);
+    background:var(--chipbg); font-size:.74rem; font-weight:700; letter-spacing:.03em; margin-bottom:.6rem; }
+  h1.title { font-size:30px; margin:.1rem 0 .3rem; color:var(--ink); }
+  .sub { color:var(--muted); margin:0 0 18px; }
+  .hero { padding:2.4rem 2.6rem; border-radius:24px; color:#fff;
+    background:linear-gradient(120deg,var(--blue) 0%,var(--violet) 100%);
+    box-shadow:0 18px 50px rgba(59,70,180,.22); margin-bottom:22px; }
+  .hero h1 { margin:0 0 .55rem; font-size:clamp(2rem,4vw,3rem); line-height:1.05; }
+  .hero p { margin:0; font-size:1.12rem; opacity:.92; }
+  .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .card { padding:1.1rem 1.15rem; border:1px solid #dbeafe; border-radius:16px; background:rgba(255,255,255,.9);
+    box-shadow:0 8px 24px rgba(30,64,175,.06); }
+  .card h4 { color:#1e3a8a; margin:.2rem 0 .35rem; }
+  .card .small { color:var(--muted); font-size:.86rem; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px 22px;
+    box-shadow:0 8px 24px rgba(30,64,175,.05); margin-bottom:16px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  label { display:block; font-size:12.5px; color:var(--muted); margin:12px 0 5px; font-weight:600; }
+  input[type=text],input[type=number],select,textarea {
+    width:100%; background:#fff; border:1px solid var(--line); color:var(--text);
+    border-radius:10px; padding:9px 11px; font:inherit; }
+  input:focus,select:focus,textarea:focus { outline:2px solid #c7d2fe; border-color:var(--indigo); }
+  textarea { font-family:ui-monospace,Consolas,monospace; font-size:12.5px; min-height:90px; }
+  .drop { border:2px dashed #a5b4fc; border-radius:16px; padding:26px; text-align:center; cursor:pointer;
+    background:linear-gradient(145deg,#eff6ff,#f5f3ff); color:#475569; }
+  .drop.has { border-color:var(--indigo); color:var(--ink); }
+  .kinases { display:grid; grid-template-columns:repeat(3,1fr); gap:6px 14px; max-height:230px; overflow:auto;
+    background:#f8fafc; border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .kinases label { margin:0; display:flex; gap:7px; align-items:center; color:var(--text); font-weight:500; }
+  .btn { background:var(--indigo); color:#fff; border:0; border-radius:10px; padding:10px 18px; font:inherit;
+    font-weight:600; cursor:pointer; }
+  .btn:hover { background:var(--indigo2); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn.ghost { background:#fff; border:1px solid var(--line); color:var(--text); font-weight:500; }
+  .btn.ghost:hover { border-color:var(--indigo); color:var(--indigo); }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .spacer { flex:1; }
+  .footer-nav { display:flex; justify-content:space-between; margin-top:22px; }
+  .note { padding:12px 14px; border-radius:12px; font-size:13.5px; }
+  .note.info { background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; }
+  .note.warn { background:var(--amberbg); color:var(--amber); border:1px solid #fde68a; }
+  .note.ok { background:var(--greenbg); color:#166534; border:1px solid #bbf7d0; }
+  .note.err { background:var(--redbg); color:#991b1b; border:1px solid #fecaca; }
+  pre.code { background:#0b1020; color:#d6deff; border-radius:12px; padding:14px; font-size:12.5px;
+    overflow:auto; max-height:280px; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; }
+  .badge { font-size:11.5px; padding:2px 9px; border-radius:999px; font-weight:700; }
+  .b-PENDING,.b-SKIPPED { background:var(--amberbg); color:var(--amber); }
+  .b-RUNNING { background:#dbeafe; color:#1d4ed8; }
+  .b-COMPLETED { background:var(--greenbg); color:#166534; }
+  .b-FAILED,.b-CANCELLED { background:var(--redbg); color:#991b1b; }
+  /* stage tracker */
+  .stages { display:flex; flex-direction:column; gap:0; margin:8px 0; }
+  .stage { display:flex; gap:14px; align-items:flex-start; padding:4px 0; }
+  .stage .col { display:flex; flex-direction:column; align-items:center; }
+  .dot { width:16px; height:16px; border-radius:50%; background:#cbd5e1; flex:none; margin-top:3px;
+    border:3px solid #fff; box-shadow:0 0 0 1px #cbd5e1; }
+  .dot.RUNNING { background:var(--indigo); box-shadow:0 0 0 1px var(--indigo); animation:pulse 1s infinite; }
+  .dot.COMPLETED { background:var(--green); box-shadow:0 0 0 1px var(--green); }
+  .dot.FAILED,.dot.CANCELLED { background:var(--red); box-shadow:0 0 0 1px var(--red); }
+  .line { width:2px; flex:1; min-height:22px; background:var(--line); }
+  .line.done { background:var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .stage .body { padding-bottom:14px; }
+  .stage .body .lbl { font-weight:600; color:var(--ink); }
+  img.result { width:100%; border-radius:14px; background:#fff; border:1px solid var(--line); }
+  .spinner { width:16px; height:16px; border:2px solid #c7d2fe; border-top-color:var(--indigo);
+    border-radius:50%; display:inline-block; animation:spin .8s linear infinite; vertical-align:-3px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* modal */
+  .modal-bg { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none; align-items:center;
+    justify-content:center; z-index:20; }
+  .modal { background:#fff; border-radius:18px; padding:24px; max-width:440px; box-shadow:0 24px 60px rgba(0,0,0,.25); }
+  .modal h3 { margin:0 0 8px; color:var(--ink); }
+  .modal p { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside id="sidebar"></aside>
+  <main id="main"></main>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3>Identical run already exists</h3>
+    <p id="modalText"></p>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="useCached()">Use existing result</button>
+      <button class="btn ghost" onclick="runAgain()">Run again</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEPS = ["Home","Upload","Structure Prediction","Binder Design","Selectivity Screening","Visualization","Download"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+
+const S = {
+  step: "Home",
+  mode: "…",
+  presets: { filters: [], advanced: [] },
+  kinases: [],
+  file: null, fileText: null, inputType: null, validation: null,
+  settings: {
+    name: "", binder_name: "", chains: "A", target_hotspot_residues: "",
+    length_min: 65, length_max: 150, number_of_final_designs: 100,
+    filters_preset: "", advanced_preset: "",
+  },
+  selectedKinases: new Set(),
+  jobId: null,
+  jobs: [],
+  cached: null,
+  apiError: null,
+  auth: { enabled: false, user: null },
+};
+
+async function api(path, opts = {}) {
+  // Auth is a server-side session cookie (BFF) — sent automatically, same origin.
+  const r = await fetch("/api" + path, { credentials: "same-origin", ...opts });
+  if (r.status === 401 && S.auth.enabled) {
+    window.location.href = "/api/auth/login";   // FastAPI drives the Entra login
+    return new Promise(() => {});                // halt; navigation is underway
+  }
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function init() {
+  render();            // draw the shell immediately so the page is never blank
+  await setupAuth();   // WashU SSO (Entra) if the backend has it enabled
+  loadConfig();        // then hydrate from the backend (or show an error banner)
+  setInterval(refreshJobs, 3000);
+}
+
+// ---------- WashU SSO via the backend (server-side session cookie) ----------
+async function setupAuth() {
+  let cfg;
+  try { cfg = await api("/auth/config"); } catch { return; }   // unreachable → banner handles it
+  S.auth.enabled = !!cfg.enabled;
+  if (!cfg.enabled) return;
+  // Ask the API who we are. If not signed in, api() 401-redirects to /api/auth/login.
+  try {
+    const me = await api("/me");
+    S.auth.user = me.name || me.preferred_username;
+    renderSidebar();
+  } catch { /* api() already navigated to login on 401 */ }
+}
+
+function signOut() { window.location.href = "/api/auth/logout"; }
+
+async function loadConfig() {
+  try {
+    const cfg = await api("/config");
+    S.apiError = null;
+    S.mode = cfg.mode;
+    S.presets = { filters: cfg.filters, advanced: cfg.advanced };
+    S.kinases = cfg.kinases;
+    S.selectedKinases = new Set(cfg.kinases);
+    S.settings.filters_preset = cfg.filters[0] || "default_filters";
+    S.settings.advanced_preset = (cfg.advanced.find(a => a.includes("default")) || cfg.advanced[0] || "default_4stage_multimer");
+    render();
+    refreshJobs();
+  } catch (e) {
+    S.apiError = e.message || "unreachable";
+    render();
+  }
+}
+
+// ---------- navigation / state helpers ----------
+function go(step) { S.step = step; render(); }
+function setField(k, v) { S.settings[k] = v; updateSidebar(); }
+function setNum(k, v) { S.settings[k] = +v; updateSidebar(); }
+function toggleKinase(k, on) { on ? S.selectedKinases.add(k) : S.selectedKinases.delete(k); updateSidebar(); }
+function selectAllKinases(on) { S.selectedKinases = on ? new Set(S.kinases) : new Set(); render(); }
+
+function stepIndex() { return STEPS.indexOf(S.step); }
+function currentJob() { return S.jobs.find(j => j.id === S.jobId) || null; }
+function hasFile() { return !!S.file; }
+function panelCount() { return S.selectedKinases.size; }
+
+function reset() {
+  S.file = S.fileText = S.inputType = S.validation = S.jobId = null;
+  S.selectedKinases = new Set(S.kinases);
+  S.settings.binder_name = ""; S.settings.name = ""; S.settings.target_hotspot_residues = "";
+  go("Home");
+}
+
+// ---------- rendering ----------
+function render() {
+  renderSidebar();
+  const r = {
+    "Home": pageHome, "Upload": pageUpload, "Structure Prediction": pageStructure,
+    "Binder Design": pageDesign, "Selectivity Screening": pageScreening,
+    "Visualization": pageViz, "Download": pageDownload,
+  }[S.step];
+  const banner = S.apiError
+    ? `<div class="note err" style="margin-bottom:16px"><b>Can't reach the backend.</b> ${esc(S.apiError)}.
+       Open the app through the server URL (e.g. <b>http://localhost:8000</b> over your SSH tunnel) — not the
+       index.html file directly — and make sure uvicorn is running.</div>`
+    : "";
+  $("main").innerHTML = banner + r();
+  if (S.step === "Visualization") updateViz();
+}
+
+function renderSidebar() {
+  const idx = stepIndex();
+  const job = currentJob();
+  const nav = STEPS.map((s, i) => {
+    const active = s === S.step ? "active" : "";
+    const done = i < idx ? "done" : "";
+    return `<button class="navbtn ${active} ${done}" onclick="go('${s}')">
+      <span class="n">${i === 0 ? "🏠" : i}</span><span>${i === 0 ? "Home" : s}</span></button>`;
+  }).join("");
+
+  const recent = S.jobs.slice(0, 6).map(j =>
+    `<div class="runrow" onclick="openRun('${j.id}')">
+       <span>${esc(j.name)}</span><span class="badge b-${j.status}">${j.status}</span></div>`).join("")
+    || `<div class="status">No runs yet.</div>`;
+
+  $("sidebar").innerHTML = `
+    <h2>🧬 Selective Binder</h2>
+    <div class="tag">BindCraft design workspace</div>
+    <span class="mode">mode: ${esc(S.mode)}</span>
+    <hr>
+    ${nav}
+    <hr>
+    <div class="status">Workspace</div>
+    <div class="status" id="ssTarget">Target: <b>${S.file ? esc(S.file.name) : "—"}</b></div>
+    <div class="status" id="ssType">Input: <b>${S.inputType ? S.inputType.toUpperCase() : "—"}</b></div>
+    <div class="status" id="ssPanel">Panel: <b>${panelCount()}</b> kinases</div>
+    <div class="status" id="ssRun">Run: <b>${job ? job.status : "—"}</b></div>
+    <hr>
+    <div class="status">Recent runs</div>
+    ${recent}
+    <hr>
+    ${S.auth.enabled ? `<div class="status">👤 <b>${esc(S.auth.user || "signed in")}</b></div>
+      <button class="ghostlite" onclick="signOut()" style="margin-bottom:8px">Sign out</button>` : ""}
+    <button class="ghostlite" onclick="reset()">Reset workspace</button>`;
+}
+
+function updateSidebar() {
+  if ($("ssPanel")) $("ssPanel").innerHTML = `Panel: <b>${panelCount()}</b> kinases`;
+}
+
+function header(title, desc) {
+  const n = stepIndex();
+  return `<span class="chip">STEP ${n + 1} OF ${STEPS.length}</span>
+    <h1 class="title">${title}</h1><p class="sub">${desc}</p>`;
+}
+function footer(prev, next, nextEnabled = true, nextLabel = null) {
+  const back = prev ? `<button class="btn ghost" onclick="go('${prev}')">← ${prev}</button>` : "<span></span>";
+  const fwd = next ? `<button class="btn" ${nextEnabled ? "" : "disabled"} onclick="go('${next}')">${nextLabel || ("Continue to " + next)} →</button>` : "<span></span>";
+  return `<div class="footer-nav">${back}${fwd}</div>`;
+}
+
+// ---------- pages ----------
+function pageHome() {
+  const steps = [
+    ["01","FASTA / PDB Upload","Provide a target sequence or structure."],
+    ["02","Structure Prediction","Fold a FASTA target into a PDB (ColabFold)."],
+    ["03","Binder Design","Generate candidate binders with BindCraft."],
+    ["04","Selectivity Screening","Profile the top binder across a kinase panel."],
+    ["05","Visualization","Watch progress and inspect the ipTM plot."],
+    ["06","Download","Export the plot, logs, and a run summary."],
+  ];
+  return `
+    <div class="hero">
+      <h1>Sequence-to-Selective-Binder Platform</h1>
+      <p>Design kinase binders from a sequence or structure, then profile their selectivity.</p>
+    </div>
+    <div class="panel">
+      <div class="note info">Backend mode: <b>${esc(S.mode)}</b>. Each run is submitted to the cluster as a staged
+        pipeline; identical re-runs are served from the result cache.</div>
+      <h3 style="color:var(--ink)">From target to ranked selectivity plot</h3>
+      <div class="cards">
+        ${steps.map(([n,t,d]) => `<div class="card"><span class="chip">${n}</span><h4>${t}</h4><div class="small">${d}</div></div>`).join("")}
+      </div>
+      <div class="row" style="margin-top:18px"><button class="btn" onclick="go('Upload')">Start a new design →</button></div>
+    </div>`;
+}
+
+function pageUpload() {
+  let preview = "";
+  if (S.file) {
+    const v = S.validation;
+    const note = v ? `<div class="note ${v.ok ? "ok" : "err"}">${esc(v.msg)}</div>` : "";
+    const code = S.fileText ? `<pre class="code">${esc(S.fileText.slice(0, 1200))}${S.fileText.length > 1200 ? "\n… [preview truncated]" : ""}</pre>` : "";
+    preview = `<div style="margin-top:14px">${note}${code}</div>`;
+  }
+  const ok = hasFile() && (S.inputType === "pdb" || (S.validation && S.validation.ok));
+  return `
+    ${header("Upload Target", "Add the protein target — a structure (.pdb) or a sequence (.fasta).")}
+    <div class="panel">
+      <div class="drop ${S.file ? "has" : ""}" onclick="filePick.click()">
+        ${S.file ? `📄 <b>${esc(S.file.name)}</b> &nbsp;·&nbsp; click to replace` : "Click to choose a <b>.pdb</b> or <b>.fasta</b> file"}
+      </div>
+      <input type="file" id="filePick" accept=".pdb,.ent,.fasta,.fa,.faa,.seq" style="display:none" onchange="onFile(this)" />
+      ${preview}
+      <div class="note info" style="margin-top:14px">A <b>FASTA</b> target is folded to a PDB first (adds a structure-prediction stage).
+        A <b>PDB</b> target skips that stage.</div>
+    </div>
+    ${footer("Home", "Structure Prediction", ok)}`;
+}
+
+function pageStructure() {
+  if (!hasFile()) return missing("Upload a target first.", "Upload");
+  const isFasta = S.inputType === "fasta";
+  return `
+    ${header("Structure Prediction", "ColabFold / AlphaFold2 folds a FASTA target into a PDB.")}
+    <div class="panel">
+      <div class="row"><span class="badge ${isFasta ? "b-PENDING" : "b-SKIPPED"}">${isFasta ? "WILL RUN" : "SKIPPED"}</span>
+        <span>${isFasta
+          ? "Your target is a sequence — stage 1 runs ColabFold to produce <b>target.pdb</b> before design."
+          : "Your target is already a structure — folding is skipped and the PDB is used directly."}</span></div>
+      <table style="margin-top:14px">
+        <tr><th>Target file</th><td>${esc(S.file.name)}</td></tr>
+        <tr><th>Detected type</th><td>${S.inputType.toUpperCase()}</td></tr>
+        <tr><th>Stage 1 (fold)</th><td>${isFasta ? "ColabFold (5 models, rank-1 → target.pdb)" : "not needed"}</td></tr>
+      </table>
+      <div class="note info" style="margin-top:14px">This stage runs automatically on the cluster after you launch the pipeline.</div>
+    </div>
+    ${footer("Upload", "Binder Design", true)}`;
+}
+
+function pageDesign() {
+  if (!hasFile()) return missing("Upload a target first.", "Upload");
+  const s = S.settings;
+  const opt = (arr, sel) => arr.map(a => `<option ${a === sel ? "selected" : ""}>${esc(a)}</option>`).join("");
+  const lenBad = s.length_min > s.length_max;
+  return `
+    ${header("Binder Design", "Configure BindCraft. These values are written to a per-run settings JSON.")}
+    <div class="panel">
+      <div class="grid2">
+        <div><label>Run name (optional)</label><input type="text" value="${esc(s.name)}" oninput="setField('name',this.value)" placeholder="e.g. PDL1 binders run 1"></div>
+        <div><label>Binder name</label><input type="text" value="${esc(s.binder_name)}" oninput="setField('binder_name',this.value)" placeholder="${esc(S.file ? S.file.name.replace(/\\.[^.]+$/, '') : 'PDL1')}"></div>
+      </div>
+      <div class="grid2">
+        <div><label>Target chains</label><input type="text" value="${esc(s.chains)}" oninput="setField('chains',this.value)"></div>
+        <div><label>Hotspot residues (optional)</label><input type="text" value="${esc(s.target_hotspot_residues)}" oninput="setField('target_hotspot_residues',this.value)" placeholder="e.g. 56 or 56,58,121"></div>
+      </div>
+      <div class="grid2">
+        <div><label>Binder length min</label><input type="number" value="${s.length_min}" oninput="setNum('length_min',this.value)"></div>
+        <div><label>Binder length max</label><input type="number" value="${s.length_max}" oninput="setNum('length_max',this.value)"></div>
+      </div>
+      ${lenBad ? `<div class="note err" style="margin-top:10px">Minimum length must not exceed maximum.</div>` : ""}
+      <div class="grid2">
+        <div><label>Number of final designs</label><input type="number" value="${s.number_of_final_designs}" oninput="setNum('number_of_final_designs',this.value)"></div>
+        <div></div>
+      </div>
+      <div class="grid2">
+        <div><label>Filters preset</label><select onchange="setField('filters_preset',this.value)">${opt(S.presets.filters, s.filters_preset)}</select></div>
+        <div><label>Advanced preset</label><select onchange="setField('advanced_preset',this.value)">${opt(S.presets.advanced, s.advanced_preset)}</select></div>
+      </div>
+    </div>
+    ${footer("Structure Prediction", "Selectivity Screening", !lenBad)}`;
+}
+
+function pageScreening() {
+  if (!hasFile()) return missing("Upload a target first.", "Upload");
+  const checks = S.kinases.map(k =>
+    `<label><input type="checkbox" value="${esc(k)}" ${S.selectedKinases.has(k) ? "checked" : ""} onchange="toggleKinase('${esc(k)}',this.checked)">${esc(k)}</label>`).join("");
+  const canRun = panelCount() > 0 && !(S.settings.length_min > S.settings.length_max) && S.settings.binder_name.trim();
+  return `
+    ${header("Selectivity Screening", "Pick the kinase panel the top binder is profiled against (ipTM per kinase).")}
+    <div class="panel">
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn ghost" onclick="selectAllKinases(true)">Select all</button>
+        <button class="btn ghost" onclick="selectAllKinases(false)">Clear</button>
+        <span class="spacer"></span><span class="small" style="color:var(--muted)">${panelCount()} selected</span>
+      </div>
+      <div class="kinases">${checks}</div>
+      ${!S.settings.binder_name.trim() ? `<div class="note warn" style="margin-top:12px">Set a <b>Binder name</b> on the Binder Design step before running.</div>` : ""}
+      <div class="row" style="margin-top:18px">
+        <button class="btn" ${canRun ? "" : "disabled"} onclick="runPipeline(false)">🚀 Run pipeline</button>
+        <span class="small" style="color:var(--muted)">Submits fold → design → profile to the cluster.</span>
+      </div>
+      <div class="note err" id="runErr" style="display:none;margin-top:12px"></div>
+    </div>
+    ${footer("Binder Design", null)}`;
+}
+
+function pageViz() {
+  const job = currentJob();
+  if (!job && !S.jobId) return missing("Run the pipeline (or pick a recent run) to see progress.", "Selectivity Screening");
+  return `
+    ${header("Visualization", "Live pipeline progress and the ipTM-vs-kinase selectivity plot.")}
+    <div class="panel" id="vizPanel"><div class="row"><span class="spinner"></span> Loading run…</div></div>
+    ${footer("Selectivity Screening", "Download", true)}`;
+}
+
+function updateViz() {
+  const job = currentJob();
+  const el = $("vizPanel");
+  if (!el) return;
+  if (!job) { el.innerHTML = `<div class="row"><span class="spinner"></span> Submitting run…</div>`; return; }
+
+  const stages = job.stages || [];
+  const tracker = stages.map((s, i) => {
+    const last = i === stages.length - 1;
+    const lineDone = stages[i].status === "COMPLETED";
+    return `<div class="stage">
+      <div class="col"><span class="dot ${s.status}"></span>${last ? "" : `<span class="line ${lineDone ? "done" : ""}"></span>`}</div>
+      <div class="body"><div class="lbl">${esc(s.label)}</div>
+        <span class="badge b-${s.status}">${s.status}</span></div></div>`;
+  }).join("");
+
+  let result = "";
+  if (job.status === "COMPLETED")
+    result = `<h3 style="color:var(--ink)">ipTM vs kinase</h3>
+      <img class="result" src="/api/jobs/${job.id}/result.png?t=${job.updated_at}" alt="ipTM vs kinase plot">`;
+  else if (job.status === "FAILED")
+    result = `<div class="note err">${esc(job.error || "A stage failed — see logs.")}</div>`;
+  else
+    result = `<div class="note info"><span class="spinner"></span> Running on the cluster — this view refreshes automatically.</div>`;
+
+  const cancel = (job.status === "PENDING" || job.status === "RUNNING")
+    ? `<button class="btn ghost" onclick="cancelJob('${job.id}')">Cancel run</button>` : "";
+
+  el.innerHTML = `
+    <div class="row" style="margin-bottom:10px">
+      <span class="badge b-${job.status}">${job.status}</span>
+      <span class="small" style="color:var(--muted)">${esc(job.name)} · target ${esc(job.target_name)} (${job.input_type}) · ${job.stages.length} stages</span>
+      <span class="spacer"></span>${cancel}
+      <button class="btn ghost" onclick="loadLogs('${job.id}')">View logs</button>
+    </div>
+    <div class="stages">${tracker}</div>
+    <div style="margin-top:14px">${result}</div>
+    <pre class="code" id="logbox" style="display:none;margin-top:14px"></pre>`;
+}
+
+function pageDownload() {
+  const job = currentJob();
+  if (!job) return missing("No run selected.", "Visualization");
+  if (job.status !== "COMPLETED")
+    return `${header("Download Results", "Export the plot, logs, and a run summary.")}
+      <div class="panel"><div class="note warn">Run is <b>${job.status}</b>. Downloads unlock when it completes.</div></div>
+      ${footer("Visualization", null)}`;
+  return `
+    ${header("Download Results", "Export the selectivity plot, logs, and a run summary.")}
+    <div class="panel">
+      <div class="cards">
+        <div class="card"><h4>iptm_plot.png</h4><div class="small">The ipTM-vs-kinase selectivity plot.</div>
+          <div style="margin-top:10px"><a class="btn" href="/api/jobs/${job.id}/result.png" download="iptm_${esc(job.target_name)}.png">Download plot</a></div></div>
+        <div class="card"><h4>run_logs.txt</h4><div class="small">Per-stage cluster logs.</div>
+          <div style="margin-top:10px"><button class="btn" onclick="downloadLogs('${job.id}')">Download logs</button></div></div>
+        <div class="card"><h4>summary.txt</h4><div class="small">Run configuration and target panel.</div>
+          <div style="margin-top:10px"><button class="btn" onclick="downloadSummary('${job.id}')">Download summary</button></div></div>
+      </div>
+      <img class="result" style="margin-top:18px" src="/api/jobs/${job.id}/result.png?t=${job.updated_at}" alt="result">
+    </div>
+    ${footer("Visualization", null)}`;
+}
+
+function missing(msg, target) {
+  return `${header(S.step, "")}<div class="panel"><div class="note warn">${esc(msg)}</div>
+    <div style="margin-top:14px"><button class="btn" onclick="go('${target}')">Go to ${target}</button></div></div>`;
+}
+
+// ---------- file handling ----------
+function onFile(input) {
+  const f = input.files[0];
+  if (!f) return;
+  S.file = f;
+  const ext = (f.name.split(".").pop() || "").toLowerCase();
+  S.inputType = ["pdb", "ent"].includes(ext) ? "pdb" : "fasta";
+  if (!S.settings.binder_name) S.settings.binder_name = f.name.replace(/\.[^.]+$/, "");
+  S.validation = null; S.fileText = null;
+  if (S.inputType === "fasta") {
+    const reader = new FileReader();
+    reader.onload = () => { S.fileText = reader.result; S.validation = validateFasta(reader.result); render(); };
+    reader.readAsText(f);
+  } else {
+    S.validation = { ok: true, msg: "PDB structure file accepted." };
+  }
+  render();
+}
+
+function validateFasta(text) {
+  if (!text.trim()) return { ok: false, msg: "File is empty." };
+  if (!text.includes(">")) return { ok: false, msg: "No FASTA header (line starting with '>') found." };
+  let records = 0, residues = 0, bad = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.startsWith(">")) records++;
+    else if (line.trim()) {
+      residues += line.trim().length;
+      if (/[^A-Za-z:*\-\s]/.test(line.trim())) bad = true;
+    }
+  }
+  if (records === 0) return { ok: false, msg: "No sequence records found." };
+  if (bad) return { ok: false, msg: "Sequence contains unexpected characters." };
+  return { ok: true, msg: `Valid FASTA · ${records} record(s) · ${residues} residues.` };
+}
+
+// ---------- run / poll ----------
+async function runPipeline(force) {
+  const err = $("runErr");
+  const fd = new FormData();
+  fd.append("file", S.file);
+  fd.append("payload", JSON.stringify({
+    name: S.settings.name || null,
+    target_name: S.file.name.replace(/\.[^.]+$/, ""),
+    binder_name: S.settings.binder_name.trim(),
+    chains: S.settings.chains.trim() || "A",
+    target_hotspot_residues: S.settings.target_hotspot_residues.trim(),
+    length_min: S.settings.length_min, length_max: S.settings.length_max,
+    number_of_final_designs: S.settings.number_of_final_designs,
+    filters_preset: S.settings.filters_preset, advanced_preset: S.settings.advanced_preset,
+    targets: [...S.selectedKinases], force,
+  }));
+  try {
+    const res = await api("/jobs", { method: "POST", body: fd });
+    if (res.cache_hit) { S.cached = res.job; openModal(res.job); return; }
+    S.jobId = res.job.id;
+    await refreshJobs();
+    go("Visualization");
+  } catch (e) { if (err) { err.style.display = "block"; err.textContent = e.message; } }
+}
+
+function openModal(job) {
+  $("modalText").innerHTML = `<b>${esc(job.name)}</b> was already run with this exact target file and settings on
+    ${new Date(job.created_at * 1000).toLocaleString()}. Reuse that result, or run it again on the cluster?`;
+  $("modalBg").style.display = "flex";
+}
+function closeModal() { $("modalBg").style.display = "none"; }
+function useCached() { closeModal(); S.jobId = S.cached.id; refreshJobs().then(() => go("Visualization")); }
+function runAgain() { closeModal(); runPipeline(true); }
+
+function openRun(id) { S.jobId = id; go("Visualization"); }
+
+async function refreshJobs() {
+  let jobs;
+  try { ({ jobs } = await api("/jobs")); }
+  catch { return; }
+  if (S.apiError) { loadConfig(); return; }  // backend recovered — re-hydrate
+  S.jobs = jobs;
+  renderSidebar();
+  if (S.step === "Visualization") updateViz();
+}
+
+async function loadLogs(id) {
+  const box = $("logbox"); if (!box) return;
+  box.style.display = "block"; box.textContent = "loading…";
+  try { box.textContent = (await api(`/jobs/${id}/logs`)).logs; } catch (e) { box.textContent = e.message; }
+}
+async function cancelJob(id) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); } catch {} refreshJobs(); }
+
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+async function downloadLogs(id) {
+  try { download(`run_logs_${id}.txt`, (await api(`/jobs/${id}/logs`)).logs); } catch (e) { alert(e.message); }
+}
+function downloadSummary(id) {
+  const j = S.jobs.find(x => x.id === id); if (!j) return;
+  const s = j.settings || {};
+  const lines = [
+    "BindCraft Selective Binder Platform — Run Summary",
+    "=".repeat(50), "",
+    `Run name:        ${j.name}`,
+    `Target:          ${j.target_name} (${j.input_type})`,
+    `Status:          ${j.status}`,
+    `Binder name:     ${s.binder_name}`,
+    `Chains:          ${s.chains}`,
+    `Hotspots:        ${s.target_hotspot_residues || "(none)"}`,
+    `Binder length:   ${s.length_min}-${s.length_max}`,
+    `Final designs:   ${s.number_of_final_designs}`,
+    `Filters preset:  ${s.filters_preset}`,
+    `Advanced preset: ${s.advanced_preset}`,
+    `Kinase panel:    ${(s.targets || []).join(", ")}`,
+    "",
+    `Stages:          ${(j.stages || []).map(x => x.key + ":" + x.status).join("  ")}`,
+  ];
+  download(`summary_${id}.txt`, lines.join("\n"));
+}
+
+init();
+</script>
+</body>
+</html>

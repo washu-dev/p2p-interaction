@@ -1,0 +1,42 @@
+#!/bin/bash
+#SBATCH -J __JOBNAME__
+#SBATCH -p __PARTITION__
+#SBATCH -A __ACCOUNT__
+#SBATCH --gres=gpu:H100:1
+#SBATCH --mem-per-gpu=80G
+#SBATCH --time=15:00:00
+#SBATCH -o __JOBDIR__/design.log
+
+# Stage 2: run BindCraft binder design against target.pdb using the
+# GUI-generated settings_target.json + the chosen filter/advanced presets.
+set -euo pipefail
+JOBDIR="__JOBDIR__"
+BINDCRAFT_DIR="__BINDCRAFT_DIR__"
+
+# Bake an ABSOLUTE micromamba root prefix into the job. Unlike a hand-submitted
+# sbatch (which inherits MAMBA_ROOT_PREFIX from your login shell), this job is
+# launched by the GUI process, so we must point micromamba at the env root
+# explicitly or it resolves env names relative to the job's working dir.
+#
+# Disable `nounset` around activation: conda/micromamba activate.d scripts
+# (e.g. cuda-nvcc) reference optional vars like NVCC_PREPEND_FLAGS that aren't
+# always set, which would trip `set -u`.
+set +u
+export MAMBA_ROOT_PREFIX="__MAMBA_ROOT__"
+eval "$(micromamba shell hook --shell bash)"
+micromamba activate __MAMBA_ENV__
+set -u
+export LD_LIBRARY_PATH="${MAMBA_ROOT_PREFIX}/envs/__MAMBA_ENV__/lib:${LD_LIBRARY_PATH:-}"
+
+cd "$BINDCRAFT_DIR"
+echo "[design] $(date) running BindCraft"
+python -u bindcraft.py \
+    --settings "$JOBDIR/settings_target.json" \
+    --filters "__FILTERS_PATH__" \
+    --advanced "__ADVANCED_PATH__"
+
+echo "[design] $(date) selecting top-ranked binder"
+python "__PIPELINE_DIR__/select_top_binder.py" \
+    "$JOBDIR/bindcraft_out" \
+    "$JOBDIR/top_binder.pdb"
+echo "[design] $(date) done -> top_binder.pdb"

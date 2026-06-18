@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.0
+python-multipart>=0.0.9
+
+# ssh mode (backend off-cluster, drives login node via Paramiko)
+paramiko>=3.4
+
+# web-user auth (server-side Entra/OIDC: session cookie + code-flow + token exchange)
+PyJWT[crypto]>=2.8
+itsdangerous>=2.1
+httpx>=0.27
