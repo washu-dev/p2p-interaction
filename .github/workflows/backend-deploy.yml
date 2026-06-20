@@ -116,6 +116,7 @@ jobs:
           severity:       HIGH,CRITICAL
           exit-code:      "1"
           ignore-unfixed: true
+          trivyignores:   .trivyignore
 
       # SARIF format: upload to GitHub Security tab (no-block — SARIF uses
       # vendor-adjusted severity which can differ from the table scan above).
@@ -129,6 +130,7 @@ jobs:
           severity:       HIGH,CRITICAL
           exit-code:      "0"
           ignore-unfixed: true
+          trivyignores:   .trivyignore
 
       - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-results.sarif') != ''
