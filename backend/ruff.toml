@@ -19,4 +19,4 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"pipeline/*.py" = ["S", "B", "E501"]   # HPC helper scripts — shell calls and long lines are intentional
+"backend/pipeline/*.py" = ["S", "B", "E501"]   # HPC helper scripts — shell calls and long lines are intentional
