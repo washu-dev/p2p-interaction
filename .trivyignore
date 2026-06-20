@@ -1,5 +1,8 @@
 # CVE-2026-24049: wheel privilege escalation via malicious wheel file.
-# wheel is a pip build-time dependency present in the base image; it is never
-# invoked at container runtime (the app does not process .whl files).
-# Re-evaluate when python:3.11-slim ships wheel >= 0.46.2.
+# CVE-2026-23949: jaraco.context path traversal via malicious archive.
+# Both are pip/setuptools internal dependencies bundled inside pip itself.
+# They are never invoked at container runtime (the app does not process
+# wheel files or archives via these libraries).
+# Re-evaluate when python:3.11-slim ships wheel >= 0.46.2 and jaraco.context >= 6.1.0.
 CVE-2026-24049
+CVE-2026-23949
