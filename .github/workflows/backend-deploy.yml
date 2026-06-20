@@ -6,12 +6,14 @@ on:
     paths:
       - "backend/**"
       - "Dockerfile"
+      - ".trivyignore"
       - ".github/workflows/backend-deploy.yml"
   pull_request:
     branches: [main]
     paths:
       - "backend/**"
       - "Dockerfile"
+      - ".trivyignore"
       - ".github/workflows/backend-deploy.yml"
   workflow_dispatch:
 
