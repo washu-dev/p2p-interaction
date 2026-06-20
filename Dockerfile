@@ -8,11 +8,12 @@ WORKDIR /app
 # Patch OS packages before installing app deps
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip toolchain packages that carry known CVEs in the base image,
-# then install app deps.
+# Install app deps, then force-upgrade toolchain packages that carry known CVEs
+# in the base image (wheel, jaraco.context). Done after requirements so nothing
+# can downgrade them.
 COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip wheel "jaraco.context>=6.1.0" && \
-    pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt && \
+    pip install --no-cache-dir "wheel>=0.46.2" "jaraco.context>=6.1.0"
 
 # Copy application code preserving the directory layout config.py expects:
 #   BASE_DIR = /app/backend
