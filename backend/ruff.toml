@@ -1,0 +1,18 @@
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "S",   # flake8-bandit (basic security)
+    "UP",  # pyupgrade
+]
+ignore = [
+    "S101",  # assert used — acceptable in FastAPI dependencies
+    "S603",  # subprocess without shell=True — used intentionally in runner.py
+    "S607",  # partial executable path — intentional in sbatch calls
+]
+
+[lint.per-file-ignores]
+"pipeline/*.py" = ["S", "B"]   # HPC helper scripts — shell calls are intentional

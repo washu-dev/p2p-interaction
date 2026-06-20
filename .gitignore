@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.env
+.env.*
+
+# Node / frontend
+node_modules/
+web/dist/
+web/.vite/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Runtime data
+data/jobs/
+data/*.sqlite
+*.sqlite
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+
+# Cluster / deploy secrets
+backend/gcp-db-postgresql.conf
+*.pem
+*.key
+_deploy.yaml
