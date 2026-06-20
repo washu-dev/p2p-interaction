@@ -107,23 +107,27 @@ jobs:
           echo "image=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
       # ── Trivy (container image CVE scan — OWASP A06) ──────────────────────
-      - name: Trivy — image scan (table view for log)
+      # Table format: human-readable log output + blocks on HIGH/CRITICAL.
+      - name: Trivy — image scan (block on HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref:      ${{ steps.build.outputs.image }}
           format:         table
           severity:       HIGH,CRITICAL
-          exit-code:      "0"
+          exit-code:      "1"
           ignore-unfixed: true
 
-      - name: Trivy — image scan (block on HIGH/CRITICAL)
+      # SARIF format: upload to GitHub Security tab (no-block — SARIF uses
+      # vendor-adjusted severity which can differ from the table scan above).
+      - name: Trivy — generate SARIF for Security tab
+        if: always()
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref:    ${{ steps.build.outputs.image }}
-          format:       sarif
-          output:       trivy-results.sarif
-          severity:     HIGH,CRITICAL
-          exit-code:    "1"
+          image-ref:      ${{ steps.build.outputs.image }}
+          format:         sarif
+          output:         trivy-results.sarif
+          severity:       HIGH,CRITICAL
+          exit-code:      "0"
           ignore-unfixed: true
 
       - name: Upload Trivy SARIF
