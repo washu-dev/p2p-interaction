@@ -8,9 +8,11 @@ WORKDIR /app
 # Patch OS packages before installing app deps
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
-# Install deps in a separate layer for cache efficiency
+# Upgrade pip toolchain packages that carry known CVEs in the base image,
+# then install app deps.
 COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip wheel "jaraco.context>=6.1.0" && \
+    pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy application code preserving the directory layout config.py expects:
 #   BASE_DIR = /app/backend
