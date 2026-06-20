@@ -9,17 +9,16 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
-
 import auth as authmod
 import config
 import db
 from auth import auth_config, require_user
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from runner import get_runner
 from stages import build_stages, overall_status
+from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="BindCraft GUI")
 app.add_middleware(
@@ -100,7 +99,7 @@ async def create_job(
     try:
         p = json.loads(payload)
     except json.JSONDecodeError:
-        raise HTTPException(400, "payload is not valid JSON")
+        raise HTTPException(400, "payload is not valid JSON") from None
 
     ext = Path(file.filename or "").suffix.lower()
     if ext in FASTA_EXTS:

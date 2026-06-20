@@ -11,7 +11,6 @@ All runners share one interface, operating on a job's *stages*:
   * RemoteSlurmRunner — backend runs OFF-cluster (AWS); drives the login node
                         over Paramiko SSH (whiteboard's RSA-key design).
 """
-import json
 import posixpath
 import shutil
 import subprocess

@@ -1,5 +1,6 @@
-import sys
 import os
+import sys
+
 from Bio.PDB import PDBParser, is_aa
 from Bio.SeqUtils import seq1
 
@@ -57,7 +58,7 @@ for fasta_file in fasta_files:
     target_seq = ""
     target_name = ""
 
-    with open(target_fasta, "r") as f:
+    with open(target_fasta) as f:
         for line in f:
             line = line.strip()
             if line.startswith(">"):
@@ -72,7 +73,7 @@ for fasta_file in fasta_files:
     output_file = os.path.join(output_dir, f"{fasta_base}_vs_{pdb_base}.fasta")
 
     with open(output_file, "w") as f:
-        f.write(f">target_binder_complex\n")
+        f.write(">target_binder_complex\n")
         f.write(f"{target_seq}:{binder_seq}\n")
 
     with open(list_file, "a") as f:

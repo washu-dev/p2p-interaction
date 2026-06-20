@@ -17,10 +17,9 @@ from __future__ import annotations
 import secrets
 from urllib.parse import urlencode
 
+import config
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
-
-import config
 
 
 def _authorize_url():
@@ -101,7 +100,7 @@ async def callback(request: Request):
             issuer=f"{config.AUTHORITY}/v2.0",
         )
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(401, f"invalid id_token: {e}")
+        raise HTTPException(401, f"invalid id_token: {e}") from e
 
     if claims.get("nonce") != request.session.get("oauth_nonce"):
         raise HTTPException(401, "invalid nonce")

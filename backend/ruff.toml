@@ -1,3 +1,5 @@
+line-length = 125
+
 [lint]
 select = [
     "E",   # pycodestyle errors
@@ -9,10 +11,12 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "S101",  # assert used — acceptable in FastAPI dependencies
-    "S603",  # subprocess without shell=True — used intentionally in runner.py
+    "S101",  # assert — acceptable in FastAPI dependencies
+    "S603",  # subprocess without shell=True — intentional in runner.py
     "S607",  # partial executable path — intentional in sbatch calls
+    "B008",  # FastAPI Depends()/File()/Form() in function signatures — standard pattern
+    "S110",  # try-except-pass — intentional reconnect suppression in sshconn.py
 ]
 
 [lint.per-file-ignores]
-"pipeline/*.py" = ["S", "B"]   # HPC helper scripts — shell calls are intentional
+"pipeline/*.py" = ["S", "B", "E501"]   # HPC helper scripts — shell calls and long lines are intentional

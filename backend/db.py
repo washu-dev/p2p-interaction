@@ -62,7 +62,7 @@ def create_job(job):
     cols = ", ".join(enc)
     ph = ", ".join(f":{k}" for k in enc)
     with _conn() as c:
-        c.execute(f"INSERT INTO jobs ({cols}) VALUES ({ph})", enc)
+        c.execute(f"INSERT INTO jobs ({cols}) VALUES ({ph})", enc)  # noqa: S608
 
 
 def update_job(job_id, **fields):
@@ -72,7 +72,7 @@ def update_job(job_id, **fields):
     enc = _encode(fields)
     sets = ", ".join(f"{k} = ?" for k in enc)
     with _conn() as c:
-        c.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*enc.values(), job_id])
+        c.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*enc.values(), job_id])  # noqa: S608
 
 
 def get_job(job_id):
