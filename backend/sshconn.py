@@ -42,7 +42,16 @@ class SSHManager:
             raise SSHError("ssh mode needs BINDGUI_SSH_HOST, BINDGUI_SSH_USER and BINDGUI_SSH_KEY")
         pm = _pm()
         client = pm.SSHClient()
-        client.set_missing_host_key_policy(pm.AutoAddPolicy())
+        # Load known_hosts from an explicit file (BINDGUI_SSH_KNOWN_HOSTS_FILE) or
+        # the system default (~/.ssh/known_hosts), then reject unrecognised keys.
+        # To populate: `ssh-keyscan <host> >> ~/.ssh/known_hosts` once on the host,
+        # or set BINDGUI_SSH_KNOWN_HOSTS_FILE to a pre-seeded file in the container.
+        known_hosts_file = config.SSH_KNOWN_HOSTS_FILE
+        if known_hosts_file:
+            client.load_host_keys(known_hosts_file)
+        else:
+            client.load_system_host_keys()
+        client.set_missing_host_key_policy(pm.RejectPolicy())
         client.connect(
             hostname=config.SSH_HOST,
             port=config.SSH_PORT,

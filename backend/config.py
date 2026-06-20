@@ -74,6 +74,10 @@ SSH_PORT = int(os.environ.get("BINDGUI_SSH_PORT", "22"))
 SSH_USER = os.environ.get("BINDGUI_SSH_USER", "")
 SSH_KEY = os.environ.get("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the AWS host
 SSH_KEY_PASSPHRASE = os.environ.get("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
+# Path to a known_hosts file for host-key verification (RejectPolicy).
+# If blank, Paramiko loads the system default (~/.ssh/known_hosts).
+# Populate once with: ssh-keyscan <SSH_HOST> >> <file>
+SSH_KNOWN_HOSTS_FILE = os.environ.get("BINDGUI_SSH_KNOWN_HOSTS_FILE", "")
 # Per-job scratch root ON THE CLUSTER (job subdirs + uploaded pipeline live here).
 REMOTE_DIR = os.environ.get(
     "BINDGUI_REMOTE_DIR",
