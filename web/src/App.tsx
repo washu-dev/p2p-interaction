@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, setAuthEnabled, type AppConfig, type Job } from "./api";
+import { api, apiUrl, setAuthEnabled, type AppConfig, type Job } from "./api";
 
 const STEPS = [
   "Home", "Upload", "Structure Prediction", "Binder Design",
@@ -370,7 +370,7 @@ export default function App() {
           </div>
           <div style={{ marginTop: 14 }}>
             {job.status === "COMPLETED" && <><h3 style={{ color: "var(--ink)" }}>ipTM vs kinase</h3>
-              <img className="result" src={`/api/jobs/${job.id}/result.png?t=${job.updated_at}`} alt="ipTM vs kinase plot" /></>}
+              <img className="result" src={{apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)}} alt="ipTM vs kinase plot" /></>}
             {job.status === "FAILED" && <div className="note err">{job.error || "A stage failed — see logs."}</div>}
             {(job.status === "PENDING" || job.status === "RUNNING") && <div className="note info"><span className="spinner" /> Running on the cluster — refreshes automatically.</div>}
           </div>
@@ -396,13 +396,13 @@ export default function App() {
         <div className="panel">
           <div className="cards">
             <div className="card"><h4>iptm_plot.png</h4><div className="small">The ipTM-vs-kinase selectivity plot.</div>
-              <div style={{ marginTop: 10 }}><a className="btn" href={`/api/jobs/${job.id}/result.png`} download={`iptm_${job.target_name}.png`}>Download plot</a></div></div>
+              <div style={{ marginTop: 10 }}><a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a></div></div>
             <div className="card"><h4>run_logs.txt</h4><div className="small">Per-stage cluster logs.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadLogs(job.id)}>Download logs</button></div></div>
             <div className="card"><h4>summary.txt</h4><div className="small">Run configuration and target panel.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadSummary(job)}>Download summary</button></div></div>
           </div>
-          <img className="result" style={{ marginTop: 18 }} src={`/api/jobs/${job.id}/result.png?t=${job.updated_at}`} alt="result" />
+          <img className="result" style={{ marginTop: 18 }} src={{apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)}} alt="result" />
         </div>
         <Footer prev="Visualization" />
       </>
@@ -443,7 +443,7 @@ export default function App() {
         <hr />
         {auth.enabled && <>
           <div className="status">👤 <b>{auth.user || "signed in"}</b></div>
-          <button className="ghostlite" style={{ marginBottom: 8 }} onClick={() => (window.location.href = "/api/auth/logout")}>Sign out</button>
+          <button className="ghostlite" style={{ marginBottom: 8 }} onClick={() => (window.location.href = apiUrl("/auth/logout"))}>Sign out</button>
         </>}
         <button className="ghostlite" onClick={reset}>Reset workspace</button>
       </aside>

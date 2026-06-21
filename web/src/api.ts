@@ -1,5 +1,14 @@
 // Typed API client. Auth is a server-side session cookie (BFF) — sent
 // automatically on same-origin requests; on 401 we bounce to the backend login.
+//
+// VITE_API_BASE_URL: optional env var injected at build time.
+//   Unset (dev)  → all /api/* calls are relative, proxied by Vite to localhost:8000.
+//   Set  (prod)  → prepended to every /api/* call so the browser targets the
+//                  real backend (e.g. https://d5j3l1rgzmla.cloudfront.net).
+const _BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
+/** Build a full URL for /api/<path> — safe for both fetch() and href/src. */
+export const apiUrl = (path: string) => `${_BASE}/api${path}`;
 
 export interface Stage {
   key: string;
@@ -46,9 +55,9 @@ export function setAuthEnabled(v: boolean) {
 }
 
 export async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const r = await fetch("/api" + path, { credentials: "same-origin", ...opts });
+  const r = await fetch(apiUrl(path), { credentials: "include", ...opts });
   if (r.status === 401 && authEnabled) {
-    window.location.href = "/api/auth/login";
+    window.location.href = apiUrl("/auth/login");
     return new Promise<T>(() => {}); // halt; navigation underway
   }
   if (!r.ok) {
