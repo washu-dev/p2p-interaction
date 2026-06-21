@@ -143,7 +143,8 @@ export default function App() {
     setLogText("loading…");
     try { setLogText((await api<any>(`/jobs/${id}/logs`)).logs); } catch (e: any) { setLogText(e.message); }
   }
-  async function cancelJob(id: string) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); } catch (_e) { /* cancel errors are non-fatal */ } refreshJobs(); }
+  async function cancelJob(id: string) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); // eslint-disable-next-line no-empty
+} catch { } refreshJobs(); }
 
   function download(name: string, text: string) {
     const a = document.createElement("a");
