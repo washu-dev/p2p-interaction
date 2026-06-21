@@ -100,7 +100,7 @@ export default function App() {
   // ---- handlers ----
   function setField(k: string, v: any) { setSettings((s) => ({ ...s, [k]: v })); }
   function toggleKinase(k: string, on: boolean) {
-    setSelected((prev) => { const n = new Set(prev); on ? n.add(k) : n.delete(k); return n; });
+    setSelected((prev) => { const n = new Set(prev); if (on) { n.add(k); } else { n.delete(k); } return n; });
   }
   function onFile(f: File | null) {
     if (!f) return;
@@ -143,7 +143,7 @@ export default function App() {
     setLogText("loading…");
     try { setLogText((await api<any>(`/jobs/${id}/logs`)).logs); } catch (e: any) { setLogText(e.message); }
   }
-  async function cancelJob(id: string) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); } catch {} refreshJobs(); }
+  async function cancelJob(id: string) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); } catch (_e) { /* cancel errors are non-fatal */ } refreshJobs(); }
 
   function download(name: string, text: string) {
     const a = document.createElement("a");
