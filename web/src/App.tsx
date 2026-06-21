@@ -370,7 +370,7 @@ export default function App() {
           </div>
           <div style={{ marginTop: 14 }}>
             {job.status === "COMPLETED" && <><h3 style={{ color: "var(--ink)" }}>ipTM vs kinase</h3>
-              <img className="result" src={{apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)}} alt="ipTM vs kinase plot" /></>}
+              <img className="result" src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="ipTM vs kinase plot" /></>}
             {job.status === "FAILED" && <div className="note err">{job.error || "A stage failed — see logs."}</div>}
             {(job.status === "PENDING" || job.status === "RUNNING") && <div className="note info"><span className="spinner" /> Running on the cluster — refreshes automatically.</div>}
           </div>
@@ -402,7 +402,7 @@ export default function App() {
             <div className="card"><h4>summary.txt</h4><div className="small">Run configuration and target panel.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadSummary(job)}>Download summary</button></div></div>
           </div>
-          <img className="result" style={{ marginTop: 18 }} src={{apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)}} alt="result" />
+          <img className="result" style={{ marginTop: 18 }} src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="result" />
         </div>
         <Footer prev="Visualization" />
       </>
