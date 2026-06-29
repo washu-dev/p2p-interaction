@@ -19,7 +19,7 @@ top of `main`, in order:
         │  React SPA     │                                     (Entra ID)
         └───────┬────────┘                                        ▲
                 │  REST + session cookie (credentials)            │ code flow
-        ┌───────▼──────────────────────────────────────┐         │
+        ┌───────▼───────────────────────────────────────┐         │
         │  FastAPI on ECS (behind ALB)                  │─────────┘
         │   • CORS for the CloudFront origin            │
         │   • server-side Entra OIDC → session cookie   │
