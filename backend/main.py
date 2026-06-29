@@ -279,5 +279,8 @@ def cancel(jid: str, user: dict = Depends(require_user)):
     return db.get_job(jid)
 
 
-# The UI is served from the same origin as the API.
-app.mount("/", StaticFiles(directory=str(config.FRONTEND_DIR), html=True), name="ui")
+# Serve the built React app when present (always in the Docker image). When it's
+# missing (local API-only runs / Vite dev on :5173), skip the mount so startup
+# doesn't fail — the API still works and Vite proxies /api in dev.
+if config.FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(config.FRONTEND_DIR), html=True), name="ui")

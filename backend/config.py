@@ -12,9 +12,9 @@ BASE_DIR = Path(__file__).resolve().parent          # gui/backend
 GUI_DIR = BASE_DIR.parent                            # gui
 REPO_DIR = GUI_DIR.parent                            # BindCraft repo root
 PIPELINE_DIR = BASE_DIR / "pipeline"
-# Prefer the built React app (gui/web/dist); fall back to the buildless SPA.
-_REACT_DIST = GUI_DIR / "web" / "dist"
-FRONTEND_DIR = _REACT_DIST if (_REACT_DIST / "index.html").exists() else GUI_DIR / "frontend"
+# Single UI: the built React app (web/dist). Served by FastAPI when present
+# (always in the Docker image; locally requires `npm run build` or use Vite dev).
+FRONTEND_DIR = GUI_DIR / "web" / "dist"
 
 # "mock"  -> simulate jobs locally (laptop dev)
 # "slurm" -> backend runs ON the login node, submits via local sbatch
