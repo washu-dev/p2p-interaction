@@ -11,6 +11,7 @@ All runners share one interface, operating on a job's *stages*:
   * RemoteSlurmRunner — backend runs OFF-cluster (AWS); drives the login node
                         over Paramiko SSH (whiteboard's RSA-key design).
 """
+import json
 import posixpath
 import shutil
 import subprocess
@@ -119,11 +120,24 @@ class MockRunner:
                 log.write("[mock] fold done -> target.pdb\n")
             elif key == "design":
                 (job_dir / "top_binder.pdb").write_text("MOCK top-ranked binder PDB\n")
-                log.write("[mock] design done -> top_binder.pdb\n")
+                (job_dir / "design_result.json").write_text(json.dumps({
+                    "binder_name": job_dir.name[:8] + "_mock",
+                    "binder_sequence": "MKQLEDKVEELLSKNYHLENEVARLKKLVGER",
+                    "composite_score": 73.2,
+                    "design_metrics": {"Average_i_pTM": 0.84, "Average_pLDDT": 0.93},
+                }))
+                log.write("[mock] design done -> top_binder.pdb + design_result.json\n")
             elif key == "profile":
                 if config.MOCK_RESULT_PNG.exists():
                     shutil.copyfile(config.MOCK_RESULT_PNG, job_dir / "result.png")
-                log.write("[mock] profile done -> result.png\n")
+                tfile = job_dir / "targets.txt"
+                targets = [t for t in tfile.read_text().splitlines() if t.strip()] if tfile.exists() else ["MST1", "MST2"]
+                (job_dir / "selectivity.json").write_text(json.dumps([
+                    {"kinase": k, "best_iptm": round(0.55 + 0.04 * i, 3),
+                     "avg_iptm": round(0.50 + 0.04 * i, 3)}
+                    for i, k in enumerate(targets)
+                ]))
+                log.write("[mock] profile done -> result.png + selectivity.json\n")
 
     def cancel(self, job, job_dir: Path):
         for s in job["stages"]:
@@ -274,9 +288,14 @@ class RemoteSlurmRunner:
                 except Exception:  # noqa: BLE001 — logs are best-effort
                     pass
         if any(s["key"] == "profile" and s["status"] == "COMPLETED" for s in job["stages"]):
-            remote_png = posixpath.join(rjob, "result.png")
-            if not (job_dir / "result.png").exists() and self.ssh.exists(remote_png):
-                self.ssh.get(remote_png, str(job_dir / "result.png"))
+            # result.png + the machine-readable results for the shared library.
+            for name in ("result.png", "selectivity.json", "design_result.json"):
+                remote = posixpath.join(rjob, name)
+                if not (job_dir / name).exists() and self.ssh.exists(remote):
+                    try:
+                        self.ssh.get(remote, str(job_dir / name))
+                    except Exception:  # noqa: BLE001 — best-effort
+                        pass
 
     def cancel(self, job, job_dir: Path):
         for s in job["stages"]:

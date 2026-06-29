@@ -11,7 +11,7 @@ type Validation = { ok: boolean; msg: string } | null;
 const DEFAULT_SETTINGS = {
   name: "", binder_name: "", chains: "A", target_hotspot_residues: "",
   length_min: 65, length_max: 150, number_of_final_designs: 100,
-  filters_preset: "", advanced_preset: "",
+  filters_preset: "", advanced_preset: "", make_public: false,
 };
 
 function validateFasta(text: string): { ok: boolean; msg: string } {
@@ -46,8 +46,21 @@ export default function App() {
   const [cached, setCached] = useState<Job | null>(null);
   const [runErr, setRunErr] = useState("");
   const [logText, setLogText] = useState<string | null>(null);
+  const [library, setLibrary] = useState<any[]>([]);
+  const [libQ, setLibQ] = useState("");
+  const [libKinase, setLibKinase] = useState("");
 
   const fileInput = useRef<HTMLInputElement>(null);
+
+  async function loadLibrary() {
+    try {
+      const r = await api<{ results: any[] }>(
+        `/library?q=${encodeURIComponent(libQ)}&kinase=${encodeURIComponent(libKinase)}`
+      );
+      setLibrary(r.results || []);
+    } catch { /* ignore */ }
+  }
+  function openLibrary() { setStep("Library"); loadLibrary(); }
 
   // ---- bootstrap + polling ----
   useEffect(() => {
@@ -130,7 +143,7 @@ export default function App() {
       length_min: settings.length_min, length_max: settings.length_max,
       number_of_final_designs: settings.number_of_final_designs,
       filters_preset: settings.filters_preset, advanced_preset: settings.advanced_preset,
-      targets: [...selected], force,
+      targets: [...selected], make_public: settings.make_public, force,
     }));
     try {
       const res = await api<any>("/jobs", { method: "POST", body: fd });
@@ -333,6 +346,11 @@ export default function App() {
             ))}
           </div>
           {!settings.binder_name.trim() && <div className="note warn" style={{ marginTop: 12 }}>Set a <b>Binder name</b> on the Binder Design step before running.</div>}
+          <label className="note info" style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+            <input type="checkbox" checked={settings.make_public} onChange={(e) => setField("make_public", e.target.checked)} style={{ marginTop: 3 }} />
+            <span>Contribute these results to the <b>shared binder library</b>. Your binder <b>sequence</b>, target,
+              and per-kinase ipTM metrics will be visible to other signed-in users. Leave unchecked to keep this run private.</span>
+          </label>
           <div className="row" style={{ marginTop: 18 }}>
             <button className="btn" disabled={!canRun} onClick={() => runPipeline(false)}>🚀 Run pipeline</button>
             <span className="small" style={{ color: "var(--muted)" }}>Submits fold → design → profile to the cluster.</span>
@@ -410,10 +428,46 @@ export default function App() {
     );
   }
 
+  function pageLibrary() {
+    return (
+      <>
+        <span className="chip">SHARED LIBRARY</span>
+        <h1 className="title">Binder Library</h1>
+        <p className="sub">Binders that other users chose to share, with their per-kinase selectivity.</p>
+        <div className="panel">
+          <div className="row" style={{ marginBottom: 12 }}>
+            <input type="text" placeholder="Search binder / sequence…" value={libQ}
+              onChange={(e) => setLibQ(e.target.value)} style={{ maxWidth: 280 }} />
+            <input type="text" placeholder="Filter by kinase…" value={libKinase}
+              onChange={(e) => setLibKinase(e.target.value)} style={{ maxWidth: 200 }} />
+            <button className="btn" onClick={loadLibrary}>Search</button>
+          </div>
+          {library.length === 0 ? <div className="empty" style={{ color: "var(--muted)" }}>No shared results yet.</div> : (
+            <table>
+              <thead><tr><th>Binder</th><th>Target</th><th>Score</th><th>Selectivity (kinase: best ipTM)</th><th>By</th></tr></thead>
+              <tbody>
+                {library.map((b) => (
+                  <tr key={b.id}>
+                    <td><b>{b.binder_name}</b></td>
+                    <td>{b.target_name}</td>
+                    <td>{b.composite_score ?? "—"}</td>
+                    <td className="small">{(b.selectivity || []).map((s: any) => `${s.kinase}: ${s.best_iptm}`).join("  ·  ")}</td>
+                    <td className="small" style={{ color: "var(--muted)" }}>{b.submitted_by}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="footer-nav"><button className="btn ghost" onClick={() => setStep("Home")}>← Home</button><span /></div>
+      </>
+    );
+  }
+
   const pages: Record<string, () => JSX.Element> = {
     "Home": pageHome, "Upload": pageUpload, "Structure Prediction": pageStructure,
     "Binder Design": pageDesign, "Selectivity Screening": pageScreening,
-    "Visualization": pageViz, "Download": pageDownload,
+    "Visualization": pageViz, "Download": pageDownload, "Library": pageLibrary,
   };
 
   return (
@@ -441,6 +495,10 @@ export default function App() {
             <span>{j.name}</span><span className={"badge b-" + j.status}>{j.status}</span>
           </div>
         ))}
+        <hr />
+        <button className={"navbtn" + (step === "Library" ? " active" : "")} onClick={openLibrary}>
+          <span className="n">📚</span><span>Shared Library</span>
+        </button>
         <hr />
         {auth.enabled && <>
           <div className="status">👤 <b>{auth.user || "signed in"}</b></div>

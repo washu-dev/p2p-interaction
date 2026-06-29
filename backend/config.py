@@ -110,6 +110,18 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 # (e.g. the CloudFront URL). Blank → "/" (correct for same-origin / Option A).
 WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
+# ---------------------------------------------------------------------------
+# Shared results library — opt-in public store of binder + selectivity results.
+# Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
+# (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)
+# ---------------------------------------------------------------------------
+DB_HOST = os.environ.get("DB_HOST", "").rstrip("/")
+DB_PORT = int(os.environ.get("DB_PORT", "5432"))
+DB_USER = os.environ.get("DB_USER", "")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+DB_NAME = os.environ.get("DB_NAME", "")
+RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
+
 ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
 # A single CONFIDENTIAL web-app registration (client id + secret + redirect URI).
 ENTRA_CLIENT_ID = os.environ.get("BINDGUI_ENTRA_CLIENT_ID", "")
