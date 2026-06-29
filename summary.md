@@ -104,7 +104,7 @@ confusion about which UI is real. Now there is one UI.
 
 ---
 
-## Outstanding (explained)
+## Outstanding
 
 These are known gaps in this branch — *what* each is, *why* it matters, and
 *how* to resolve it.
