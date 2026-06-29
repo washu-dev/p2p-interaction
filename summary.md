@@ -162,61 +162,58 @@ These are known gaps in this branch — *what* each is, *why* it matters, and
 
 ## TODOs — whole architecture
 
-Legend: ✅ done · 🟡 partial / needs config · ⬜ not started
-Owners: **You** (d.mingyue) · **Lead** (AWS) · **RIS** (cluster IT) · **Entra** (WashU identity) · **Dev** (code)
-
 ### A. Connectivity (AWS ↔ RIS cluster)
-- ⬜ **RIS/Lead:** open SSH from AWS — firewall exception for the AWS Elastic IP, *or* extend the WashU VPN / VPC peering.
-- ⬜ **Lead:** pin a static **Elastic IP** (or NAT) so RIS can whitelist one address.
-- ⬜ **RIS:** confirm SLURM submission over non-interactive SSH is allowed, and a **stable login node** to target.
-- ⬜ **Dev:** if RIS requires a **bastion/jump host**, add `ProxyJump` to `sshconn.py` (currently direct-only).
+- Open SSH from AWS — firewall exception for the AWS Elastic IP, *or* extend the WashU VPN / VPC peering.
+- Pin a static **Elastic IP** (or NAT) so RIS can whitelist one address.
+- Confirm SLURM submission over non-interactive SSH is allowed, and a **stable login node** to target.
+- If RIS requires a **bastion/jump host**, add `ProxyJump` to `sshconn.py` (currently direct-only).
 
 ### B. Cluster auth (machine → cluster)
-- ✅ **Dev:** Paramiko RSA-key runner.
-- ⬜ **You:** generate a dedicated key; add the **public** key to the cluster account.
-- ⬜ **Lead:** deliver the **private** key to ECS via Secrets Manager.
-- 🟡 **Dev/You:** enforce host-key verification (`SSH_KNOWN_HOSTS_FILE` + `RejectPolicy`) — also clears the Bandit gate.
+- Paramiko RSA-key runner — done.
+- Generate a dedicated key; add the **public** key to the cluster account.
+- Deliver the **private** key to ECS via Secrets Manager.
+- Enforce host-key verification (`SSH_KNOWN_HOSTS_FILE` + `RejectPolicy`) — also clears the Bandit gate.
 
 ### C. Web auth (person → app)
-- ✅ **Dev:** server-side Entra OIDC + session cookie (BFF).
-- ⬜ **Entra:** register the confidential Web app (redirect URI + client secret).
-- ⬜ **Lead:** set `BINDGUI_ENTRA_*`, `SESSION_SECRET`, `COOKIE_SECURE`, `WEB_APP_URL`; set `AUTH_ENABLED=true`.
+- Server-side Entra OIDC + session cookie (BFF) — done.
+- Register the confidential Entra Web app (redirect URI + client secret).
+- Set `BINDGUI_ENTRA_*`, `SESSION_SECRET`, `COOKIE_SECURE`, `WEB_APP_URL`; set `AUTH_ENABLED=true`.
 
 ### D. Web ↔ API connectivity (Option B)
-- ✅ **Dev:** CORS + `SameSite`/`WEB_APP_URL` knobs.
-- ⬜ **Lead:** ALB on **HTTPS** (custom domain + ACM, or CloudFront in front).
-- ⬜ **Lead:** set `BINDGUI_CORS_ORIGINS` + the `VITE_API_BASE_URL` repo variable.
-- 🟡 **Lead:** prefer a **shared parent domain** for web + API to avoid third-party-cookie breakage.
+- CORS + `SameSite`/`WEB_APP_URL` knobs — done.
+- Put the ALB on **HTTPS** (custom domain + ACM, or CloudFront in front).
+- Set `BINDGUI_CORS_ORIGINS` + the `VITE_API_BASE_URL` repo variable.
+- Prefer a **shared parent domain** for web + API to avoid third-party-cookie breakage.
 
 ### E. Persistence (databases)
-- ⬜ **Dev:** migrate the **job store** SQLite → RDS Postgres (ephemeral-storage fix).
-- ✅ **Dev:** results library is Postgres-capable (`resultsdb.py`).
-- ⬜ **Lead:** provision RDS access from ECS; set `DB_*` task secrets; **rotate the password**.
+- Migrate the **job store** SQLite → RDS Postgres (ephemeral-storage fix).
+- Results library is Postgres-capable (`resultsdb.py`) — done.
+- Provision RDS access from ECS; set `DB_*` task secrets; **rotate the password**.
 
 ### F. Pipeline correctness (cluster)
-- ✅ **Dev:** composite binder scorer (verified on real `final_design_stats.csv`).
-- ⬜ **You:** one real **end-to-end `ssh`-mode run** on the cluster (the Paramiko path is only mock-tested).
-- ⬜ **You/Dev:** verify the ColabFold rank-1 `*.pdb` glob + the `ipTM=` grep against real output.
+- Composite binder scorer, verified on real `final_design_stats.csv` — done.
+- Run one real **end-to-end `ssh`-mode** job on the cluster (the Paramiko path is only mock-tested).
+- Verify the ColabFold rank-1 `*.pdb` glob + the `ipTM=` grep against real output.
 
 ### G. Deployment / CI
-- ✅ **Dev:** Dockerfile builds the single React UI; backend + web CI workflows exist.
-- ⬜ **Dev:** pass **Bandit** (host-key fix above).
-- ⬜ **Lead:** GitHub repo vars/secrets (`VITE_API_BASE_URL`, AWS creds); ECS task env; DNS + TLS.
+- Dockerfile builds the single React UI; backend + web CI workflows exist — done.
+- Pass **Bandit** (host-key fix above).
+- Set GitHub repo vars/secrets (`VITE_API_BASE_URL`, AWS creds); ECS task env; DNS + TLS.
 
 ### H. Scale / robustness
-- ⬜ **Dev:** **background poller** — job status currently only advances when `/api/jobs` is hit (and that's also when ssh-mode syncs results back).
-- ⬜ **Dev:** **SSH connection pool** — currently one shared connection behind a lock (serializes cluster calls).
-- ⬜ **Dev:** parallelize the **profile fold** as a SLURM array (currently a serial loop).
-- ⬜ **Dev:** **live log streaming** (WebSocket) instead of fetch-on-demand.
+- Add a **background poller** — job status currently only advances when `/api/jobs` is hit (and that's also when ssh-mode syncs results back).
+- Add an **SSH connection pool** — currently one shared connection behind a lock (serializes cluster calls).
+- Parallelize the **profile fold** as a SLURM array (currently a serial loop).
+- Add **live log streaming** (WebSocket) instead of fetch-on-demand.
 
 ### I. Multi-user / features
-- 🟡 **Dev:** **per-user job ownership** + per-user dedup cache (built in an earlier iteration; not yet folded into this repo — runs are currently one shared list).
-- ⬜ **Dev:** per-user **quotas / rate limits** so one user can't flood SLURM.
-- ⬜ **Dev:** **`/api/selftest`** endpoint (validate SSH/env/paths before submitting).
-- ⬜ **Dev:** surface the **binder scoreboard** in the GUI (not just the winning plot).
+- **Per-user job ownership** + per-user dedup cache (built in an earlier iteration; not yet folded into this repo — runs are currently one shared list).
+- Per-user **quotas / rate limits** so one user can't flood SLURM.
+- A **`/api/selftest`** endpoint (validate SSH/env/paths before submitting).
+- Surface the **binder scoreboard** in the GUI (not just the winning plot).
 
 ### J. Repo hygiene
-- ⬜ **You:** untrack `.venv/` and `backend/__pycache__/` (`git rm -r --cached`).
+- Untrack `.venv/` and `backend/__pycache__/` (`git rm -r --cached`).
 
 ---
 
