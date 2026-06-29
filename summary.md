@@ -104,16 +104,121 @@ confusion about which UI is real. Now there is one UI.
 
 ---
 
-## Outstanding (not in this branch)
-- **Persistence:** job tracking is still SQLite on ephemeral ECS storage —
-  migrate to RDS Postgres so job history/cache survive redeploys.
-- **CI security gate:** `sshconn.py` uses Paramiko `AutoAddPolicy` (Bandit B507);
-  wire host-key verification via `SSH_KNOWN_HOSTS_FILE` before it can pass.
-- **Infra/secrets:** ALB HTTPS, CloudFront `/api` behavior or shared parent
-  domain, Entra app registration, SSH key into ECS, and **rotate the RDS
-  password**.
-- **Repo hygiene:** `.venv/` and `backend/__pycache__/` are tracked — should be
-  `git rm -r --cached`-ed.
+## Outstanding (explained)
+
+These are known gaps in this branch — *what* each is, *why* it matters, and
+*how* to resolve it.
+
+- **Job persistence (SQLite → RDS Postgres).**
+  *What:* job tracking + the dedup cache live in a SQLite file at `/app/data`.
+  *Why it matters:* ECS Fargate storage is **ephemeral** — every redeploy,
+  restart, or scale event wipes that file, so all run history and cached results
+  vanish. *How:* port `db.py` to Postgres (the RDS instance is already there for
+  the results library), keeping a SQLite fallback for local dev.
+
+- **CI security gate — Paramiko `AutoAddPolicy`.**
+  *What:* `sshconn.py` auto-accepts any host key on first connect.
+  *Why it matters:* it disables SSH host-key verification (a MITM risk) and trips
+  **Bandit B507**, a HIGH finding that fails the `backend-deploy.yml` security
+  scan — so the image won't build/deploy. *How:* populate a `known_hosts`
+  (`ssh-keyscan <host>`), point `BINDGUI_SSH_KNOWN_HOSTS_FILE` at it, and switch
+  to `RejectPolicy` (the config hook already exists).
+
+- **ALB must serve HTTPS.**
+  *What:* the API is currently `http://…elb.amazonaws.com`.
+  *Why it matters:* an https CloudFront page calling an http API is **blocked as
+  mixed content**, and ACM won't issue a cert for the raw `*.elb.amazonaws.com`
+  name. *How:* front the ALB with a **custom domain + ACM cert**, or put a
+  CloudFront distribution in front of it.
+
+- **CloudFront `/api` routing (or shared parent domain).**
+  *What:* the SPA (CloudFront) and API (ALB) are different origins.
+  *Why it matters:* cross-origin cookies are **third-party** and increasingly
+  blocked by browsers, which would silently break login even with CORS set.
+  *How:* either route `/api/*` through CloudFront to the ALB (same-origin), or
+  host web + API under one parent domain (`app.` / `api.`) so the cookie is
+  first-party.
+
+- **Entra app registration + enable auth.**
+  *What:* `AUTH_ENABLED` is off; no Entra app exists yet.
+  *Why it matters:* without it the API is unauthenticated. *How:* register a
+  confidential Web app (redirect `…/api/auth/callback`, client secret), then set
+  `BINDGUI_ENTRA_*` + `SESSION_SECRET` + `COOKIE_SECURE=true` and flip
+  `AUTH_ENABLED=true`.
+
+- **Secrets handling.**
+  *What:* DB password, Entra secret, and the SSH private key are sensitive.
+  *Why it matters:* they must never be in the image or repo. *How:* deliver them
+  via **ECS task secrets / AWS Secrets Manager**; and **rotate the RDS password**
+  (it was shared in cleartext).
+
+- **Repo hygiene.**
+  *What:* `.venv/` and `backend/__pycache__/` are committed.
+  *Why it matters:* they bloat the repo and make every diff noisy (the real
+  change gets buried). *How:* `git rm -r --cached .venv backend/__pycache__` and
+  rely on `.gitignore`.
+
+---
+
+## TODOs — whole architecture
+
+Legend: ✅ done · 🟡 partial / needs config · ⬜ not started
+Owners: **You** (d.mingyue) · **Lead** (AWS) · **RIS** (cluster IT) · **Entra** (WashU identity) · **Dev** (code)
+
+### A. Connectivity (AWS ↔ RIS cluster)
+- ⬜ **RIS/Lead:** open SSH from AWS — firewall exception for the AWS Elastic IP, *or* extend the WashU VPN / VPC peering.
+- ⬜ **Lead:** pin a static **Elastic IP** (or NAT) so RIS can whitelist one address.
+- ⬜ **RIS:** confirm SLURM submission over non-interactive SSH is allowed, and a **stable login node** to target.
+- ⬜ **Dev:** if RIS requires a **bastion/jump host**, add `ProxyJump` to `sshconn.py` (currently direct-only).
+
+### B. Cluster auth (machine → cluster)
+- ✅ **Dev:** Paramiko RSA-key runner.
+- ⬜ **You:** generate a dedicated key; add the **public** key to the cluster account.
+- ⬜ **Lead:** deliver the **private** key to ECS via Secrets Manager.
+- 🟡 **Dev/You:** enforce host-key verification (`SSH_KNOWN_HOSTS_FILE` + `RejectPolicy`) — also clears the Bandit gate.
+
+### C. Web auth (person → app)
+- ✅ **Dev:** server-side Entra OIDC + session cookie (BFF).
+- ⬜ **Entra:** register the confidential Web app (redirect URI + client secret).
+- ⬜ **Lead:** set `BINDGUI_ENTRA_*`, `SESSION_SECRET`, `COOKIE_SECURE`, `WEB_APP_URL`; set `AUTH_ENABLED=true`.
+
+### D. Web ↔ API connectivity (Option B)
+- ✅ **Dev:** CORS + `SameSite`/`WEB_APP_URL` knobs.
+- ⬜ **Lead:** ALB on **HTTPS** (custom domain + ACM, or CloudFront in front).
+- ⬜ **Lead:** set `BINDGUI_CORS_ORIGINS` + the `VITE_API_BASE_URL` repo variable.
+- 🟡 **Lead:** prefer a **shared parent domain** for web + API to avoid third-party-cookie breakage.
+
+### E. Persistence (databases)
+- ⬜ **Dev:** migrate the **job store** SQLite → RDS Postgres (ephemeral-storage fix).
+- ✅ **Dev:** results library is Postgres-capable (`resultsdb.py`).
+- ⬜ **Lead:** provision RDS access from ECS; set `DB_*` task secrets; **rotate the password**.
+
+### F. Pipeline correctness (cluster)
+- ✅ **Dev:** composite binder scorer (verified on real `final_design_stats.csv`).
+- ⬜ **You:** one real **end-to-end `ssh`-mode run** on the cluster (the Paramiko path is only mock-tested).
+- ⬜ **You/Dev:** verify the ColabFold rank-1 `*.pdb` glob + the `ipTM=` grep against real output.
+
+### G. Deployment / CI
+- ✅ **Dev:** Dockerfile builds the single React UI; backend + web CI workflows exist.
+- ⬜ **Dev:** pass **Bandit** (host-key fix above).
+- ⬜ **Lead:** GitHub repo vars/secrets (`VITE_API_BASE_URL`, AWS creds); ECS task env; DNS + TLS.
+
+### H. Scale / robustness
+- ⬜ **Dev:** **background poller** — job status currently only advances when `/api/jobs` is hit (and that's also when ssh-mode syncs results back).
+- ⬜ **Dev:** **SSH connection pool** — currently one shared connection behind a lock (serializes cluster calls).
+- ⬜ **Dev:** parallelize the **profile fold** as a SLURM array (currently a serial loop).
+- ⬜ **Dev:** **live log streaming** (WebSocket) instead of fetch-on-demand.
+
+### I. Multi-user / features
+- 🟡 **Dev:** **per-user job ownership** + per-user dedup cache (built in an earlier iteration; not yet folded into this repo — runs are currently one shared list).
+- ⬜ **Dev:** per-user **quotas / rate limits** so one user can't flood SLURM.
+- ⬜ **Dev:** **`/api/selftest`** endpoint (validate SSH/env/paths before submitting).
+- ⬜ **Dev:** surface the **binder scoreboard** in the GUI (not just the winning plot).
+
+### J. Repo hygiene
+- ⬜ **You:** untrack `.venv/` and `backend/__pycache__/` (`git rm -r --cached`).
+
+---
 
 ## Run locally
 ```bash
