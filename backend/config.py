@@ -96,6 +96,19 @@ AUTH_ENABLED = os.environ.get("BINDGUI_AUTH_ENABLED", "false").lower() == "true"
 SESSION_SECRET = os.environ.get("BINDGUI_SESSION_SECRET", "dev-insecure-change-me")
 # Send the session cookie only over HTTPS (set true behind TLS in production).
 COOKIE_SECURE = os.environ.get("BINDGUI_COOKIE_SECURE", "false").lower() == "true"
+# Cookie SameSite policy: "lax" for same-origin (CloudFront proxies /api → ALB),
+# "none" when the SPA calls the API on a different origin (needs COOKIE_SECURE=true).
+COOKIE_SAMESITE = os.environ.get("BINDGUI_COOKIE_SAMESITE", "lax")
+
+# CORS — comma-separated web origins allowed to call the API from the browser.
+# Needed only when the SPA and API are on different origins (cross-origin).
+# e.g. BINDGUI_CORS_ORIGINS="https://d5j3l1rgzmla.cloudfront.net"
+CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").split(",") if o.strip()]
+
+# Where to send the browser AFTER login/logout. In cross-origin mode (Option B)
+# the OIDC flow runs on the API origin, so this must point back at the SPA
+# (e.g. the CloudFront URL). Blank → "/" (correct for same-origin / Option A).
+WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
 ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
 # A single CONFIDENTIAL web-app registration (client id + secret + redirect URI).

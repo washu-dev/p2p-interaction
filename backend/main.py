@@ -14,6 +14,7 @@ import config
 import db
 from auth import auth_config, require_user
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from runner import get_runner
@@ -21,10 +22,24 @@ from stages import build_stages, overall_status
 from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="BindCraft GUI")
+
+# Cross-origin access: required when the SPA (e.g. CloudFront) calls the API on a
+# different origin (e.g. the ALB). Harmless when same-origin (list stays empty).
+# allow_credentials=True so the session cookie is sent; that forbids "*", so we
+# enumerate explicit origins via BINDGUI_CORS_ORIGINS.
+if config.CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=config.SESSION_SECRET,
-    same_site="lax",
+    same_site=config.COOKIE_SAMESITE,
     https_only=config.COOKIE_SECURE,
 )
 runner = get_runner()
