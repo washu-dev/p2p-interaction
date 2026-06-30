@@ -173,7 +173,7 @@ export default function App() {
     try {
       const token = await getToken();
       await api(`/jobs/${id}/cancel`, token, { method: "POST" });
-    } catch { }
+    } catch { /* best-effort cancel */ }
     refreshJobs();
   }
 
