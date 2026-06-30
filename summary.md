@@ -165,7 +165,7 @@ These are known gaps in this branch — *what* each is, *why* it matters, and
 ### A. Connectivity (AWS ↔ RIS cluster)
 - Open SSH from AWS — firewall exception for the AWS Elastic IP, *or* extend the WashU VPN / VPC peering.
 - Pin a static **Elastic IP** (or NAT) so RIS can whitelist one address.
-- Confirm SLURM submission over non-interactive SSH is allowed, and a **stable login node** to target.
+- Confirm SLURM submission over non-interactive SSH is allowed, and a **stable login node** to target - pretty sure we can do this.
 - If RIS requires a **bastion/jump host**, add `ProxyJump` to `sshconn.py` (currently direct-only).
 
 ### B. Cluster auth (machine → cluster)
