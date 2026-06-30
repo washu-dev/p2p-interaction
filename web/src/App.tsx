@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, apiUrl, setAuthEnabled, type AppConfig, type Job } from "./api";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import { InteractionStatus } from "@azure/msal-browser";
+import { loginRequest, API_SCOPE } from "./auth/msalConfig";
+import { api, apiUrl, type AppConfig, type Job } from "./api";
 
 const STEPS = [
   "Home", "Upload", "Structure Prediction", "Binder Design",
@@ -31,6 +34,9 @@ function validateFasta(text: string): { ok: boolean; msg: string } {
 }
 
 export default function App() {
+  const { instance, accounts, inProgress } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+
   const [step, setStep] = useState("Home");
   const [cfg, setCfg] = useState<AppConfig>({ mode: "…", filters: [], advanced: [], kinases: [] });
   const [file, setFile] = useState<File | null>(null);
@@ -42,7 +48,6 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
-  const [auth, setAuth] = useState<{ enabled: boolean; user: string | null }>({ enabled: false, user: null });
   const [cached, setCached] = useState<Job | null>(null);
   const [runErr, setRunErr] = useState("");
   const [logText, setLogText] = useState<string | null>(null);
@@ -52,37 +57,28 @@ export default function App() {
 
   const fileInput = useRef<HTMLInputElement>(null);
 
-  async function loadLibrary() {
-    try {
-      const r = await api<{ results: any[] }>(
-        `/library?q=${encodeURIComponent(libQ)}&kinase=${encodeURIComponent(libKinase)}`
-      );
-      setLibrary(r.results || []);
-    } catch { /* ignore */ }
-  }
-  function openLibrary() { setStep("Library"); loadLibrary(); }
+  const account = accounts[0] ?? null;
+  const userName = account?.name || account?.username || "signed in";
+
+  const getToken = useCallback(async (): Promise<string> => {
+    if (!account) throw new Error("not signed in");
+    const result = await instance.acquireTokenSilent({ scopes: [API_SCOPE], account });
+    return result.accessToken;
+  }, [instance, account]);
 
   // ---- bootstrap + polling ----
   useEffect(() => {
-    (async () => {
-      let acfg: any;
-      try { acfg = await api("/auth/config"); } catch { return; }
-      setAuthEnabled(!!acfg.enabled);
-      setAuth((a) => ({ ...a, enabled: !!acfg.enabled }));
-      if (acfg.enabled) {
-        try { const me = await api<any>("/me"); setAuth({ enabled: true, user: me.name || me.preferred_username }); }
-        catch { /* api() redirected to login on 401 */ }
-      }
-      loadConfig();
-    })();
+    if (!isAuthenticated) return;
+    loadConfig();
     const t = setInterval(refreshJobs, 3000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthenticated]);
 
   async function loadConfig() {
     try {
-      const c = await api<AppConfig>("/config");
+      const token = await getToken();
+      const c = await api<AppConfig>("/config", token);
       setApiError(null);
       setCfg(c);
       setSelected(new Set(c.kinases));
@@ -99,11 +95,24 @@ export default function App() {
 
   async function refreshJobs() {
     try {
-      const { jobs } = await api<{ jobs: Job[] }>("/jobs");
+      const token = await getToken();
+      const { jobs } = await api<{ jobs: Job[] }>("/jobs", token);
       setApiError((prev) => (prev ? null : prev));
       setJobs(jobs);
     } catch { /* ignore transient poll errors */ }
   }
+
+  async function loadLibrary() {
+    try {
+      const token = await getToken();
+      const r = await api<{ results: any[] }>(
+        `/library?q=${encodeURIComponent(libQ)}&kinase=${encodeURIComponent(libKinase)}`,
+        token,
+      );
+      setLibrary(r.results || []);
+    } catch { /* ignore */ }
+  }
+  function openLibrary() { setStep("Library"); loadLibrary(); }
 
   const job = useMemo(() => jobs.find((j) => j.id === jobId) || null, [jobs, jobId]);
   const idx = STEPS.indexOf(step);
@@ -146,7 +155,8 @@ export default function App() {
       targets: [...selected], make_public: settings.make_public, force,
     }));
     try {
-      const res = await api<any>("/jobs", { method: "POST", body: fd });
+      const token = await getToken();
+      const res = await api<any>("/jobs", token, { method: "POST", body: fd });
       if (res.cache_hit) { setCached(res.job); return; }
       setJobId(res.job.id); setStep("Visualization"); refreshJobs();
     } catch (e: any) { setRunErr(e.message); }
@@ -154,10 +164,18 @@ export default function App() {
 
   async function showLogs(id: string) {
     setLogText("loading…");
-    try { setLogText((await api<any>(`/jobs/${id}/logs`)).logs); } catch (e: any) { setLogText(e.message); }
+    try {
+      const token = await getToken();
+      setLogText((await api<any>(`/jobs/${id}/logs`, token)).logs);
+    } catch (e: any) { setLogText(e.message); }
   }
-  async function cancelJob(id: string) { try { await api(`/jobs/${id}/cancel`, { method: "POST" }); // eslint-disable-next-line no-empty
-} catch { } refreshJobs(); }
+  async function cancelJob(id: string) {
+    try {
+      const token = await getToken();
+      await api(`/jobs/${id}/cancel`, token, { method: "POST" });
+    } catch { }
+    refreshJobs();
+  }
 
   function download(name: string, text: string) {
     const a = document.createElement("a");
@@ -165,7 +183,10 @@ export default function App() {
     a.download = name; a.click(); URL.revokeObjectURL(a.href);
   }
   async function downloadLogs(id: string) {
-    try { download(`run_logs_${id}.txt`, (await api<any>(`/jobs/${id}/logs`)).logs); } catch (e: any) { alert(e.message); }
+    try {
+      const token = await getToken();
+      download(`run_logs_${id}.txt`, (await api<any>(`/jobs/${id}/logs`, token)).logs);
+    } catch (e: any) { alert(e.message); }
   }
   function downloadSummary(j: Job) {
     const s = j.settings;
@@ -210,6 +231,37 @@ export default function App() {
       </div>
     </>
   );
+
+  // ---- landing page (unauthenticated) ----
+  if (inProgress === InteractionStatus.None && !isAuthenticated) {
+    return (
+      <div className="layout" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <div style={{ maxWidth: 480, width: "100%", padding: "0 24px", textAlign: "center" }}>
+          <h1 style={{ fontSize: "2rem", marginBottom: 8 }}>🧬 Selective Binder Platform</h1>
+          <p style={{ color: "var(--muted)", marginBottom: 32 }}>
+            Design kinase binders from a sequence or structure, then profile their selectivity.
+            Sign in with your WashU account to continue.
+          </p>
+          <button
+            className="btn"
+            style={{ fontSize: "1rem", padding: "12px 32px" }}
+            onClick={() => instance.loginRedirect(loginRequest)}
+          >
+            Login with WashU SSO
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- auth in progress ----
+  if (inProgress !== InteractionStatus.None || !isAuthenticated) {
+    return (
+      <div className="layout" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <div style={{ textAlign: "center", color: "var(--muted)" }}>Signing in…</div>
+      </div>
+    );
+  }
 
   // ---- pages ----
   function pageHome() {
@@ -500,10 +552,8 @@ export default function App() {
           <span className="n">📚</span><span>Shared Library</span>
         </button>
         <hr />
-        {auth.enabled && <>
-          <div className="status">👤 <b>{auth.user || "signed in"}</b></div>
-          <button className="ghostlite" style={{ marginBottom: 8 }} onClick={() => (window.location.href = apiUrl("/auth/logout"))}>Sign out</button>
-        </>}
+        <div className="status">👤 <b>{userName}</b></div>
+        <button className="ghostlite" style={{ marginBottom: 8 }} onClick={() => instance.logoutRedirect()}>Sign out</button>
         <button className="ghostlite" onClick={reset}>Reset workspace</button>
       </aside>
 
