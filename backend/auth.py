@@ -1,139 +1,64 @@
-"""Server-side WashU SSO / Microsoft Entra ID auth (Backend-for-Frontend).
+"""Bearer-token auth for the SPA + FastAPI backend.
 
-The browser NEVER talks to Entra directly. FastAPI runs the OIDC
-authorization-code flow itself and stores the resulting user in a signed
-session cookie; the React SPA just calls the API with that cookie.
+The React SPA uses MSAL.js to sign the user in and acquire an access token
+scoped to User.Read.  Every API request carries:
 
-  GET  /api/auth/login     -> 302 to Entra authorize
-  GET  /api/auth/callback  -> exchange code, validate id_token, set session
-  GET  /api/auth/logout    -> clear session, 302 to Entra logout
-  require_user             -> dependency that reads the session
+    Authorization: Bearer <access_token>
 
-Disabled by default (BINDGUI_AUTH_ENABLED=false) -> every request is a local
-"dev" user, so mock/dev needs no login. httpx/PyJWT are imported lazily.
+FastAPI validates the JWT signature (via Microsoft's JWKS endpoint), checks
+audience / issuer / expiry, and returns the user claims.
+
+No client secret, no session cookies, no server-side OIDC flow.
+
+Disabled by default (BINDGUI_AUTH_ENABLED=false) so mock/dev needs no login.
 """
 from __future__ import annotations
 
-import secrets
-from urllib.parse import urlencode
-
 import config
 from fastapi import HTTPException, Request
-from fastapi.responses import RedirectResponse
 
 
-def _authorize_url():
-    return f"{config.AUTHORITY}/oauth2/v2.0/authorize"
+def _get_bearer(request: Request) -> str | None:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return None
 
 
-def _token_url():
-    return f"{config.AUTHORITY}/oauth2/v2.0/token"
+def _validate_jwt(token: str) -> dict:
+    import jwt  # PyJWT
+
+    jwks_url = f"{config.AUTHORITY}/discovery/v2.0/keys"
+    client = jwt.PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=3600)
+    key = client.get_signing_key_from_jwt(token)
+    claims = jwt.decode(
+        token,
+        key.key,
+        algorithms=["RS256"],
+        # User.Read access tokens have aud = Microsoft Graph
+        audience="00000003-0000-0000-c000-000000000000",
+        issuer=f"{config.AUTHORITY}/v2.0",
+        options={"verify_exp": True},
+    )
+    return claims
 
 
-def _redirect_uri(request: Request) -> str:
-    return config.AUTH_REDIRECT_URI or str(request.url_for("auth_callback"))
-
-
-def _web_app() -> str:
-    # Where the user lands after login/logout. In cross-origin mode this is the
-    # SPA's origin (CloudFront); same-origin falls back to "/".
-    return config.WEB_APP_URL or "/"
-
-
-def auth_config() -> dict:
-    """Public — the SPA only needs to know whether to show a Login button."""
-    return {"enabled": config.AUTH_ENABLED, "login_url": "/api/auth/login"}
-
-
-async def login(request: Request):
+def require_user(request: Request) -> dict:
+    """FastAPI dependency — returns the authenticated user or raises 401."""
     if not config.AUTH_ENABLED:
-        return RedirectResponse("/")
-    state = secrets.token_urlsafe(24)
-    nonce = secrets.token_urlsafe(24)
-    request.session["oauth_state"] = state
-    request.session["oauth_nonce"] = nonce
-    params = {
-        "client_id": config.ENTRA_CLIENT_ID,
-        "response_type": "code",
-        "redirect_uri": _redirect_uri(request),
-        "response_mode": "query",
-        "scope": config.AUTH_SCOPES,
-        "state": state,
-        "nonce": nonce,
-    }
-    return RedirectResponse(f"{_authorize_url()}?{urlencode(params)}")
+        return {"sub": "dev", "name": "Local Dev", "preferred_username": "dev@local"}
 
+    token = _get_bearer(request)
+    if not token:
+        raise HTTPException(401, "missing Bearer token")
 
-async def callback(request: Request):
-    if not config.AUTH_ENABLED:
-        return RedirectResponse("/")
-    if request.query_params.get("error"):
-        desc = request.query_params.get("error_description", request.query_params["error"])
-        raise HTTPException(400, f"login error: {desc}")
-    if request.query_params.get("state") != request.session.get("oauth_state"):
-        raise HTTPException(400, "invalid OAuth state")
-    code = request.query_params.get("code")
-    if not code:
-        raise HTTPException(400, "missing authorization code")
-
-    import httpx
-    import jwt
-
-    data = {
-        "client_id": config.ENTRA_CLIENT_ID,
-        "client_secret": config.ENTRA_CLIENT_SECRET,
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": _redirect_uri(request),
-        "scope": config.AUTH_SCOPES,
-    }
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.post(_token_url(), data=data)
-    if r.status_code != 200:
-        raise HTTPException(401, f"token exchange failed: {r.text}")
-
-    id_token = r.json().get("id_token")
-    if not id_token:
-        raise HTTPException(401, "no id_token returned by Entra")
     try:
-        jwks = jwt.PyJWKClient(f"{config.AUTHORITY}/discovery/v2.0/keys")
-        key = jwks.get_signing_key_from_jwt(id_token)
-        claims = jwt.decode(
-            id_token,
-            key.key,
-            algorithms=["RS256"],
-            audience=config.ENTRA_CLIENT_ID,
-            issuer=f"{config.AUTHORITY}/v2.0",
-        )
+        claims = _validate_jwt(token)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(401, f"invalid id_token: {e}") from e
+        raise HTTPException(401, f"invalid token: {e}") from e
 
-    if claims.get("nonce") != request.session.get("oauth_nonce"):
-        raise HTTPException(401, "invalid nonce")
-
-    request.session.pop("oauth_state", None)
-    request.session.pop("oauth_nonce", None)
-    request.session["user"] = {
+    return {
         "sub": claims.get("sub"),
         "name": claims.get("name"),
         "preferred_username": claims.get("preferred_username") or claims.get("upn") or claims.get("email"),
     }
-    return RedirectResponse(_web_app())
-
-
-async def logout(request: Request):
-    request.session.clear()
-    if not config.AUTH_ENABLED:
-        return RedirectResponse("/")
-    params = {"post_logout_redirect_uri": config.WEB_APP_URL or str(request.base_url).rstrip("/")}
-    return RedirectResponse(f"{config.AUTHORITY}/oauth2/v2.0/logout?{urlencode(params)}")
-
-
-def require_user(request: Request) -> dict:
-    """Dependency: the logged-in user (or a dev stub when auth is disabled)."""
-    if not config.AUTH_ENABLED:
-        return {"sub": "dev", "name": "Local Dev", "preferred_username": "dev@local"}
-    user = request.session.get("user")
-    if not user:
-        raise HTTPException(401, "not authenticated")
-    return user

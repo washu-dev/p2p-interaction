@@ -1,13 +1,7 @@
-// Typed API client. Auth is a server-side session cookie (BFF) — sent
-// automatically on same-origin requests; on 401 we bounce to the backend login.
-//
-// VITE_API_BASE_URL: optional env var injected at build time.
-//   Unset (dev)  → all /api/* calls are relative, proxied by Vite to localhost:8000.
-//   Set  (prod)  → prepended to every /api/* call so the browser targets the
-//                  real backend (e.g. https://d5j3l1rgzmla.cloudfront.net).
+// API client — SPA auth via MSAL.js bearer tokens.
+// Pass the access token acquired from MSAL on every call.
 const _BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
-/** Build a full URL for /api/<path> — safe for both fetch() and href/src. */
 export const apiUrl = (path: string) => `${_BASE}/api${path}`;
 
 export interface Stage {
@@ -49,17 +43,16 @@ export interface AppConfig {
   kinases: string[];
 }
 
-let authEnabled = false;
-export function setAuthEnabled(v: boolean) {
-  authEnabled = v;
-}
-
-export async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const r = await fetch(apiUrl(path), { credentials: "include", ...opts });
-  if (r.status === 401 && authEnabled) {
-    window.location.href = apiUrl("/auth/login");
-    return new Promise<T>(() => {}); // halt; navigation underway
-  }
+export async function api<T = any>(
+  path: string,
+  token: string,
+  opts: RequestInit = {},
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    ...(opts.headers as Record<string, string> | undefined),
+  };
+  const r = await fetch(apiUrl(path), { ...opts, headers });
   if (!r.ok) {
     const detail = await r.json().catch(() => ({} as any));
     throw new Error(detail.detail || r.statusText);
