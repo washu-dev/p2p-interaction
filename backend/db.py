@@ -13,6 +13,21 @@ import config
 # Columns whose values are stored as JSON text.
 _JSON_COLS = {"settings", "stages"}
 
+# Every column the dynamic INSERT/UPDATE statements are allowed to name. Column
+# identifiers can't be bound as parameters, so we validate them against this
+# allowlist — guaranteeing they can never be attacker-controlled (defense in
+# depth; values are already passed as bound parameters).
+_COLUMNS = {
+    "id", "name", "status", "params_key", "mode", "input_type", "target_name",
+    "settings", "stages", "result_path", "error", "created_at", "updated_at",
+}
+
+
+def _check_cols(d):
+    unknown = set(d) - _COLUMNS
+    if unknown:
+        raise ValueError(f"unknown job column(s): {sorted(unknown)}")
+
 
 def _conn():
     c = sqlite3.connect(config.DB_PATH)
@@ -59,6 +74,7 @@ def _row_to_dict(row):
 
 def create_job(job):
     enc = _encode(job)
+    _check_cols(enc)  # identifiers are allowlisted; values below are bound
     cols = ", ".join(enc)
     ph = ", ".join(f":{k}" for k in enc)
     with _conn() as c:
@@ -70,6 +86,7 @@ def update_job(job_id, **fields):
         return
     fields["updated_at"] = time.time()
     enc = _encode(fields)
+    _check_cols(enc)  # identifiers are allowlisted; values below are bound
     sets = ", ".join(f"{k} = ?" for k in enc)
     with _conn() as c:
         c.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*enc.values(), job_id])  # noqa: S608

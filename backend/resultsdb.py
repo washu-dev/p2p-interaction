@@ -7,6 +7,11 @@ the submitting user explicitly consented to publish.
   public_binders      : one row per published binder (sequence, target, scores)
   public_selectivity  : one row per (binder, kinase) ipTM pair
 
+SQL injection safety: SQL is always written with constant `?` placeholders and
+every value is passed separately as a bound parameter — no caller ever
+interpolates user input into a query string. `_exec()` is the single place that
+talks to a DB cursor; it only swaps the placeholder token for psycopg.
+
 psycopg is imported lazily so dev without Postgres needs no extra deps.
 """
 from __future__ import annotations
@@ -23,26 +28,34 @@ def _pg() -> bool:
 
 
 def _connect():
-    """Return (connection, placeholder). Placeholder is %s for PG, ? for SQLite."""
     if _pg():
         import psycopg
-        conn = psycopg.connect(
+        return psycopg.connect(
             host=config.DB_HOST, port=config.DB_PORT, user=config.DB_USER,
             password=config.DB_PASSWORD, dbname=config.DB_NAME, sslmode="require",
         )
-        return conn, "%s"
     import sqlite3
     conn = sqlite3.connect(config.RESULTS_SQLITE)
     conn.row_factory = sqlite3.Row
-    return conn, "?"
+    return conn
+
+
+def _exec(cur, sql: str, args: tuple | list = ()):
+    """Execute a `?`-placeholder query, binding all values as parameters.
+
+    Values are NEVER formatted into `sql`; we only translate the placeholder
+    token to psycopg's `%s`. This keeps every query parameterized by design.
+    """
+    if _pg():
+        sql = sql.replace("?", "%s")
+    cur.execute(sql, args)
 
 
 def init_results_db():
-    conn, _ = _connect()
+    conn = _connect()
     try:
         cur = conn.cursor()
-        cur.execute(
-            """
+        _exec(cur, """
             CREATE TABLE IF NOT EXISTS public_binders (
                 id              TEXT PRIMARY KEY,
                 job_id          TEXT UNIQUE,
@@ -54,10 +67,8 @@ def init_results_db():
                 submitted_by    TEXT,
                 created_at      REAL
             )
-            """
-        )
-        cur.execute(
-            """
+        """)
+        _exec(cur, """
             CREATE TABLE IF NOT EXISTS public_selectivity (
                 id         TEXT PRIMARY KEY,
                 binder_id  TEXT,
@@ -66,8 +77,7 @@ def init_results_db():
                 avg_iptm   REAL,
                 iptm_values TEXT
             )
-            """
-        )
+        """)
         conn.commit()
     finally:
         conn.close()
@@ -75,24 +85,25 @@ def init_results_db():
 
 def _rows(cur):
     cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+    return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
 
 
 def publish(job: dict, design: dict, selectivity: list[dict], submitted_by: str):
     """Insert one binder + its per-kinase rows. Idempotent on job_id."""
-    conn, ph = _connect()
+    conn = _connect()
     try:
         cur = conn.cursor()
         # Skip if this job was already published (idempotent across re-polls).
-        cur.execute(f"SELECT id FROM public_binders WHERE job_id = {ph}", (job["id"],))
+        _exec(cur, "SELECT id FROM public_binders WHERE job_id = ?", (job["id"],))
         if cur.fetchall():
             return
         bid = uuid.uuid4().hex
-        cur.execute(
-            f"""INSERT INTO public_binders
-                (id, job_id, target_name, binder_name, binder_sequence,
-                 composite_score, design_metrics, submitted_by, created_at)
-                VALUES ({ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph},{ph})""",
+        _exec(
+            cur,
+            "INSERT INTO public_binders "
+            "(id, job_id, target_name, binder_name, binder_sequence, "
+            "composite_score, design_metrics, submitted_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 bid, job["id"], job.get("target_name"),
                 design.get("binder_name") or job.get("settings", {}).get("binder_name"),
@@ -103,10 +114,11 @@ def publish(job: dict, design: dict, selectivity: list[dict], submitted_by: str)
             ),
         )
         for s in selectivity:
-            cur.execute(
-                f"""INSERT INTO public_selectivity
-                    (id, binder_id, kinase, best_iptm, avg_iptm, iptm_values)
-                    VALUES ({ph},{ph},{ph},{ph},{ph},{ph})""",
+            _exec(
+                cur,
+                "INSERT INTO public_selectivity "
+                "(id, binder_id, kinase, best_iptm, avg_iptm, iptm_values) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     uuid.uuid4().hex, bid, s.get("kinase"),
                     s.get("best_iptm"), s.get("avg_iptm"),
@@ -120,36 +132,39 @@ def publish(job: dict, design: dict, selectivity: list[dict], submitted_by: str)
 
 def list_results(kinase: str | None = None, target: str | None = None,
                  q: str | None = None, limit: int = 200) -> list[dict]:
-    """Published binders (newest first), each with its selectivity rows."""
-    conn, ph = _connect()
+    """Published binders (newest first), each with its selectivity rows.
+
+    All filters are bound parameters; only fixed condition fragments (no user
+    data) are assembled into the WHERE clause.
+    """
+    conn = _connect()
     try:
         cur = conn.cursor()
-        where, args = [], []
+        conditions, args = [], []
         if target:
-            where.append(f"target_name = {ph}")
+            conditions.append("target_name = ?")
             args.append(target)
         if q:
-            where.append(f"(binder_name LIKE {ph} OR binder_sequence LIKE {ph})")
+            conditions.append("(binder_name LIKE ? OR binder_sequence LIKE ?)")
             args += [f"%{q}%", f"%{q}%"]
         if kinase:
-            where.append(
-                f"id IN (SELECT binder_id FROM public_selectivity WHERE kinase = {ph})"
-            )
+            conditions.append("id IN (SELECT binder_id FROM public_selectivity WHERE kinase = ?)")
             args.append(kinase)
         sql = "SELECT * FROM public_binders"
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += f" ORDER BY created_at DESC LIMIT {ph}"
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        sql += " ORDER BY created_at DESC LIMIT ?"
         args.append(limit)
-        cur.execute(sql, args)
+        _exec(cur, sql, args)
         binders = _rows(cur)
         if not binders:
             return []
+
         ids = [b["id"] for b in binders]
-        placeholders = ",".join([ph] * len(ids))
-        cur.execute(
-            f"SELECT * FROM public_selectivity WHERE binder_id IN ({placeholders})", ids
-        )
+        # in_clause is only "?, ?, ..." placeholder tokens — never any user data;
+        # the binder ids are passed as bound parameters below.
+        in_clause = ", ".join(["?"] * len(ids))
+        _exec(cur, "SELECT * FROM public_selectivity WHERE binder_id IN (" + in_clause + ")", ids)  # noqa: S608
         sel_by_binder: dict[str, list] = {}
         for s in _rows(cur):
             sel_by_binder.setdefault(s["binder_id"], []).append(
