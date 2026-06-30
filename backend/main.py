@@ -9,38 +9,26 @@ import time
 import uuid
 from pathlib import Path
 
-import auth as authmod
 import config
 import db
-from auth import auth_config, require_user
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from auth import require_user
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from runner import get_runner
 from stages import build_stages, overall_status
-from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="BindCraft GUI")
 
-# Cross-origin access: required when the SPA (e.g. CloudFront) calls the API on a
-# different origin (e.g. the ALB). Harmless when same-origin (list stays empty).
-# allow_credentials=True so the session cookie is sent; that forbids "*", so we
-# enumerate explicit origins via BINDGUI_CORS_ORIGINS.
-if config.CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
+# Allow the Vite dev server and any configured origins to call the API.
+cors_origins = list(config.CORS_ORIGINS) + ["http://localhost:5173"]
 app.add_middleware(
-    SessionMiddleware,
-    secret_key=config.SESSION_SECRET,
-    same_site=config.COOKIE_SAMESITE,
-    https_only=config.COOKIE_SECURE,
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 runner = get_runner()
 db.init_db()
@@ -102,27 +90,6 @@ def get_config():
         "advanced": config.list_advanced_presets(),
         "kinases": config.list_target_kinases(),
     }
-
-
-@app.get("/api/auth/config")
-def get_auth_config():
-    """Public — tells the SPA whether login is required + the login URL."""
-    return auth_config()
-
-
-@app.get("/api/auth/login")
-async def auth_login(request: Request):
-    return await authmod.login(request)
-
-
-@app.get("/api/auth/callback", name="auth_callback")
-async def auth_callback(request: Request):
-    return await authmod.callback(request)
-
-
-@app.get("/api/auth/logout")
-async def auth_logout(request: Request):
-    return await authmod.logout(request)
 
 
 @app.get("/api/me")
