@@ -47,4 +47,6 @@ done < "$LIST"
 echo "[profile] $(date) plotting"
 python "__PIPELINE_DIR__/ipTM2graph.py" "$LIST"
 cp "$COMPLEX_DIR"/iptm_best_*.png "$JOBDIR/result.png"
+# Machine-readable selectivity for the results library.
+cp "$COMPLEX_DIR/selectivity.json" "$JOBDIR/selectivity.json" 2>/dev/null || true
 echo "[profile] $(date) done -> result.png"

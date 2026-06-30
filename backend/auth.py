@@ -34,6 +34,12 @@ def _redirect_uri(request: Request) -> str:
     return config.AUTH_REDIRECT_URI or str(request.url_for("auth_callback"))
 
 
+def _web_app() -> str:
+    # Where the user lands after login/logout. In cross-origin mode this is the
+    # SPA's origin (CloudFront); same-origin falls back to "/".
+    return config.WEB_APP_URL or "/"
+
+
 def auth_config() -> dict:
     """Public — the SPA only needs to know whether to show a Login button."""
     return {"enabled": config.AUTH_ENABLED, "login_url": "/api/auth/login"}
@@ -112,14 +118,14 @@ async def callback(request: Request):
         "name": claims.get("name"),
         "preferred_username": claims.get("preferred_username") or claims.get("upn") or claims.get("email"),
     }
-    return RedirectResponse("/")
+    return RedirectResponse(_web_app())
 
 
 async def logout(request: Request):
     request.session.clear()
     if not config.AUTH_ENABLED:
         return RedirectResponse("/")
-    params = {"post_logout_redirect_uri": str(request.base_url).rstrip("/")}
+    params = {"post_logout_redirect_uri": config.WEB_APP_URL or str(request.base_url).rstrip("/")}
     return RedirectResponse(f"{config.AUTHORITY}/oauth2/v2.0/logout?{urlencode(params)}")
 
 

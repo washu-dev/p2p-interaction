@@ -12,9 +12,9 @@ BASE_DIR = Path(__file__).resolve().parent          # gui/backend
 GUI_DIR = BASE_DIR.parent                            # gui
 REPO_DIR = GUI_DIR.parent                            # BindCraft repo root
 PIPELINE_DIR = BASE_DIR / "pipeline"
-# Prefer the built React app (gui/web/dist); fall back to the buildless SPA.
-_REACT_DIST = GUI_DIR / "web" / "dist"
-FRONTEND_DIR = _REACT_DIST if (_REACT_DIST / "index.html").exists() else GUI_DIR / "frontend"
+# Single UI: the built React app (web/dist). Served by FastAPI when present
+# (always in the Docker image; locally requires `npm run build` or use Vite dev).
+FRONTEND_DIR = GUI_DIR / "web" / "dist"
 
 # "mock"  -> simulate jobs locally (laptop dev)
 # "slurm" -> backend runs ON the login node, submits via local sbatch
@@ -96,6 +96,31 @@ AUTH_ENABLED = os.environ.get("BINDGUI_AUTH_ENABLED", "false").lower() == "true"
 SESSION_SECRET = os.environ.get("BINDGUI_SESSION_SECRET", "dev-insecure-change-me")
 # Send the session cookie only over HTTPS (set true behind TLS in production).
 COOKIE_SECURE = os.environ.get("BINDGUI_COOKIE_SECURE", "false").lower() == "true"
+# Cookie SameSite policy: "lax" for same-origin (CloudFront proxies /api → ALB),
+# "none" when the SPA calls the API on a different origin (needs COOKIE_SECURE=true).
+COOKIE_SAMESITE = os.environ.get("BINDGUI_COOKIE_SAMESITE", "lax")
+
+# CORS — comma-separated web origins allowed to call the API from the browser.
+# Needed only when the SPA and API are on different origins (cross-origin).
+# e.g. BINDGUI_CORS_ORIGINS="https://d5j3l1rgzmla.cloudfront.net"
+CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").split(",") if o.strip()]
+
+# Where to send the browser AFTER login/logout. In cross-origin mode (Option B)
+# the OIDC flow runs on the API origin, so this must point back at the SPA
+# (e.g. the CloudFront URL). Blank → "/" (correct for same-origin / Option A).
+WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
+
+# ---------------------------------------------------------------------------
+# Shared results library — opt-in public store of binder + selectivity results.
+# Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
+# (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)
+# ---------------------------------------------------------------------------
+DB_HOST = os.environ.get("DB_HOST", "").rstrip("/")
+DB_PORT = int(os.environ.get("DB_PORT", "5432"))
+DB_USER = os.environ.get("DB_USER", "")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+DB_NAME = os.environ.get("DB_NAME", "")
+RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
 
 ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
 # A single CONFIDENTIAL web-app registration (client id + secret + redirect URI).

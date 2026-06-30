@@ -14,6 +14,7 @@ import config
 import db
 from auth import auth_config, require_user
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from runner import get_runner
@@ -21,14 +22,34 @@ from stages import build_stages, overall_status
 from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="BindCraft GUI")
+
+# Cross-origin access: required when the SPA (e.g. CloudFront) calls the API on a
+# different origin (e.g. the ALB). Harmless when same-origin (list stays empty).
+# allow_credentials=True so the session cookie is sent; that forbids "*", so we
+# enumerate explicit origins via BINDGUI_CORS_ORIGINS.
+if config.CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=config.SESSION_SECRET,
-    same_site="lax",
+    same_site=config.COOKIE_SAMESITE,
     https_only=config.COOKIE_SECURE,
 )
 runner = get_runner()
 db.init_db()
+try:
+    import resultsdb
+    resultsdb.init_results_db()
+except Exception as _e:  # noqa: BLE001 — results library is optional; never block startup
+    resultsdb = None
+    print(f"[results-library] disabled: {_e}")
 
 FASTA_EXTS = {".fasta", ".fa", ".faa", ".seq"}
 PDB_EXTS = {".pdb", ".ent"}
@@ -50,7 +71,27 @@ def refresh(job):
         result = str(job_dir(job["id"]) / "result.png") if overall == "COMPLETED" else None
         db.update_job(job["id"], status=overall, stages=stages, error=err, result_path=result)
         job = db.get_job(job["id"])
+    if job and job["status"] == "COMPLETED":
+        _maybe_publish(job)
     return job
+
+
+def _maybe_publish(job):
+    """If the user consented, publish results to the shared library (idempotent)."""
+    if resultsdb is None or not job["settings"].get("make_public"):
+        return
+    d = job_dir(job["id"])
+    flag = d / "published.flag"
+    sel = d / "selectivity.json"
+    if flag.exists() or not sel.exists():
+        return
+    try:
+        design = json.loads((d / "design_result.json").read_text()) if (d / "design_result.json").exists() else {}
+        selectivity = json.loads(sel.read_text())
+        resultsdb.publish(job, design, selectivity, submitted_by=job["settings"].get("submitted_by") or "unknown")
+        flag.write_text("1")
+    except Exception as e:  # noqa: BLE001 — never let publishing break polling
+        print(f"[results-library] publish failed for {job['id']}: {e}")
 
 
 @app.get("/api/config")
@@ -124,6 +165,9 @@ async def create_job(
         "targets": p.get("targets") or [],
     }
     key = params_key(file_sha, settings)
+    # Consent + submitter are recorded AFTER the key so they don't affect dedup.
+    settings["make_public"] = bool(p.get("make_public"))
+    settings["submitted_by"] = user.get("preferred_username") or user.get("sub") or "unknown"
 
     if not p.get("force"):
         cached = db.find_cached(key)
@@ -180,6 +224,19 @@ async def create_job(
     return {"cache_hit": False, "job": db.get_job(jid)}
 
 
+@app.get("/api/library")
+def library(
+    kinase: str | None = None,
+    target: str | None = None,
+    q: str | None = None,
+    user: dict = Depends(require_user),
+):
+    """Shared, opt-in results library — visible to any signed-in user."""
+    if resultsdb is None:
+        return {"results": [], "note": "results library not configured"}
+    return {"results": resultsdb.list_results(kinase=kinase, target=target, q=q)}
+
+
 @app.get("/api/jobs")
 def list_jobs(user: dict = Depends(require_user)):
     return {"jobs": [refresh(j) for j in db.list_jobs()]}
@@ -222,5 +279,8 @@ def cancel(jid: str, user: dict = Depends(require_user)):
     return db.get_job(jid)
 
 
-# The UI is served from the same origin as the API.
-app.mount("/", StaticFiles(directory=str(config.FRONTEND_DIR), html=True), name="ui")
+# Serve the built React app when present (always in the Docker image). When it's
+# missing (local API-only runs / Vite dev on :5173), skip the mount so startup
+# doesn't fail — the API still works and Vite proxies /api in dev.
+if config.FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(config.FRONTEND_DIR), html=True), name="ui")

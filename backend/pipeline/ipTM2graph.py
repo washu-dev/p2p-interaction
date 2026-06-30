@@ -1,5 +1,6 @@
 # Usage: python plot_iptm.py complex_fasta/PDL1_l123_s488439_mpnn20_model2/PDL1_l123_s488439_mpnn20_model2_list.txt
 
+import json
 import os
 import sys
 
@@ -49,6 +50,17 @@ paired = sorted(zip(labels, best_iptm, avg_iptm), key=lambda x: x[0])
 labels, best_iptm, avg_iptm = map(list, zip(*paired))
 
 out_dir = base_dir
+
+# Machine-readable selectivity for the results library (consumed by the backend).
+with open(os.path.join(out_dir, "selectivity.json"), "w") as f:
+    json.dump(
+        [
+            {"kinase": k, "best_iptm": b, "avg_iptm": a}
+            for k, b, a in zip(labels, best_iptm, avg_iptm)
+        ],
+        f,
+        indent=2,
+    )
 
 def make_plot(y_vals, ylabel, title, filename):
     fig, ax = plt.subplots(figsize=(max(8, len(labels) * 0.6), 5))
