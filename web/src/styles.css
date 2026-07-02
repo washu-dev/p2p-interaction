@@ -117,3 +117,14 @@ img.result { width:100%; border-radius:14px; background:#fff; border:1px solid v
 .modal { background:#fff; border-radius:18px; padding:24px; max-width:440px; box-shadow:0 24px 60px rgba(0,0,0,.25); }
 .modal h3 { margin:0 0 8px; color:var(--ink); }
 .modal p { color:var(--muted); }
+
+/* hover info icon + tooltip */
+.infohint { position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-left: 6px; border-radius: 50%; border: 1px solid var(--line);
+  color: var(--muted); font-size: 10px; font-weight: 700; font-style: italic; cursor: help;
+  vertical-align: middle; user-select: none; }
+.infohint .tip { display: none; position: absolute; bottom: 150%; left: 50%; transform: translateX(-50%);
+  width: 250px; background: var(--ink); color: #fff; padding: 8px 10px; border-radius: 8px;
+  font: 400 12px/1.45 system-ui, sans-serif; font-style: normal; text-align: left; z-index: 40;
+  box-shadow: 0 10px 28px rgba(0,0,0,.28); }
+.infohint:hover .tip, .infohint:focus .tip { display: block; }

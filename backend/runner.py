@@ -35,7 +35,10 @@ def render_stage(stage, job, P) -> str:
     repl = {
         "__JOBNAME__": f"{job['id'][:6]}-{stage['key']}",
         "__PARTITION__": config.SLURM_PARTITION,
-        "__ACCOUNT__": config.SLURM_ACCOUNT,
+        # Per-job RIS/SLURM account (#SBATCH -A); falls back to the configured default.
+        "__ACCOUNT__": settings.get("slurm_account") or config.SLURM_ACCOUNT,
+        # Per-job max wall-clock per stage (#SBATCH --time), as HH:00:00.
+        "__TIME__": f"{max(1, int(settings.get('max_runtime_hours') or 15))}:00:00",
         "__JOBDIR__": P["jobdir"],
         "__BINDCRAFT_DIR__": P["bindcraft"],
         "__PIPELINE_DIR__": P["pipeline"],

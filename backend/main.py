@@ -132,9 +132,12 @@ async def create_job(
         "targets": p.get("targets") or [],
     }
     key = params_key(file_sha, settings)
-    # Consent + submitter are recorded AFTER the key so they don't affect dedup.
+    # Consent, submitter and the RIS/SLURM account are recorded AFTER the key so
+    # they don't affect dedup (they don't change the scientific result).
     settings["make_public"] = bool(p.get("make_public"))
     settings["submitted_by"] = user.get("preferred_username") or user.get("sub") or "unknown"
+    settings["slurm_account"] = (p.get("slurm_account") or "").strip()
+    settings["max_runtime_hours"] = max(1, int(p.get("max_runtime_hours") or 15))
 
     if not p.get("force"):
         cached = db.find_cached(key)
