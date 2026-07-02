@@ -4,7 +4,7 @@
 #SBATCH -A __ACCOUNT__
 #SBATCH --gres=gpu:H100:1
 #SBATCH --mem-per-gpu=80G
-#SBATCH --time=04:00:00
+#SBATCH --time=__TIME__
 #SBATCH -o __JOBDIR__/fold.log
 
 # Stage 1 (optional): fold an uploaded target FASTA into a PDB for BindCraft.

@@ -6,7 +6,7 @@ import { api, apiUrl, type AppConfig, type Job } from "./api";
 
 const STEPS = [
   "Home", "Upload", "Structure Prediction", "Binder Design",
-  "Selectivity Screening", "Visualization", "Download",
+  "Selectivity Screening", "Compute Specification", "Visualization", "Download",
 ];
 
 type Validation = { ok: boolean; msg: string } | null;
@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = {
   name: "", binder_name: "", chains: "A", target_hotspot_residues: "",
   length_min: 65, length_max: 150, number_of_final_designs: 100,
   filters_preset: "", advanced_preset: "", make_public: false,
+  slurm_account: "", max_runtime_hours: 15,
 };
 
 function validateFasta(text: string): { ok: boolean; msg: string } {
@@ -152,7 +153,9 @@ export default function App() {
       length_min: settings.length_min, length_max: settings.length_max,
       number_of_final_designs: settings.number_of_final_designs,
       filters_preset: settings.filters_preset, advanced_preset: settings.advanced_preset,
-      targets: [...selected], make_public: settings.make_public, force,
+      targets: [...selected], make_public: settings.make_public,
+      slurm_account: settings.slurm_account.trim(),
+      max_runtime_hours: settings.max_runtime_hours, force,
     }));
     try {
       const token = await getToken();
@@ -222,6 +225,9 @@ export default function App() {
       {prev ? <button className="btn ghost" onClick={() => setStep(prev)}>← {prev}</button> : <span />}
       {next ? <button className="btn" disabled={!ok} onClick={() => setStep(next)}>{label || "Continue to " + next} →</button> : <span />}
     </div>
+  );
+  const Info = ({ text }: { text: string }) => (
+    <span className="infohint" tabIndex={0}>i<span className="tip">{text}</span></span>
   );
   const Missing = ({ msg, target }: { msg: string; target: string }) => (
     <>
@@ -382,7 +388,7 @@ export default function App() {
 
   function pageScreening() {
     if (!file) return <Missing msg="Upload a target first." target="Upload" />;
-    const canRun = panelCount > 0 && !lenBad && !!settings.binder_name.trim();
+    const canContinue = panelCount > 0 && !lenBad && !!settings.binder_name.trim();
     return (
       <>
         <Header title="Selectivity Screening" desc="Pick the kinase panel the top binder is profiled against (ipTM per kinase)." />
@@ -403,13 +409,47 @@ export default function App() {
             <span>Contribute these results to the <b>shared binder library</b>. Your binder <b>sequence</b>, target,
               and per-kinase ipTM metrics will be visible to other signed-in users. Leave unchecked to keep this run private.</span>
           </label>
+        </div>
+        <Footer prev="Binder Design" next="Compute Specification" ok={canContinue} />
+      </>
+    );
+  }
+
+  function pageCompute() {
+    if (!file) return <Missing msg="Upload a target first." target="Upload" />;
+    const hrs = settings.max_runtime_hours;
+    const timeOk = Number.isFinite(hrs) && hrs >= 1;
+    const canRun = panelCount > 0 && !lenBad && !!settings.binder_name.trim() && !!settings.slurm_account.trim() && timeOk;
+    return (
+      <>
+        <Header title="Compute Specification" desc="How your cluster jobs are submitted — account and time limit." />
+        <div className="panel">
+          <div className="grid2">
+            <div>
+              <label>RIS account
+                <Info text="The SLURM allocation your cluster jobs are charged to." />
+              </label>
+              <input type="text" value={settings.slurm_account}
+                onChange={(e) => setField("slurm_account", e.target.value)}
+                placeholder="your RIS account" />
+            </div>
+            <div>
+              <label>Max run time (hours)
+                <Info text="Maximum wall-clock time per stage, written as #SBATCH --time." />
+              </label>
+              <input type="number" min={1} value={hrs}
+                onChange={(e) => setField("max_runtime_hours", parseInt(e.target.value, 10))} />
+            </div>
+          </div>
+          {!settings.slurm_account.trim() && <div className="note warn" style={{ marginTop: 12 }}>Enter your RIS account to run the pipeline.</div>}
+          {!timeOk && <div className="note warn" style={{ marginTop: 12 }}>Max run time must be at least 1 hour.</div>}
           <div className="row" style={{ marginTop: 18 }}>
             <button className="btn" disabled={!canRun} onClick={() => runPipeline(false)}>🚀 Run pipeline</button>
             <span className="small" style={{ color: "var(--muted)" }}>Submits fold → design → profile to the cluster.</span>
           </div>
           {runErr && <div className="note err" style={{ marginTop: 12 }}>{runErr}</div>}
         </div>
-        <Footer prev="Binder Design" />
+        <Footer prev="Selectivity Screening" />
       </>
     );
   }
@@ -447,7 +487,7 @@ export default function App() {
           </div>
           {logText !== null && <pre className="code" style={{ marginTop: 14 }}>{logText}</pre>}
         </div>
-        <Footer prev="Selectivity Screening" next="Download" />
+        <Footer prev="Compute Specification" next="Download" />
       </>
     );
   }
@@ -519,6 +559,7 @@ export default function App() {
   const pages: Record<string, () => JSX.Element> = {
     "Home": pageHome, "Upload": pageUpload, "Structure Prediction": pageStructure,
     "Binder Design": pageDesign, "Selectivity Screening": pageScreening,
+    "Compute Specification": pageCompute,
     "Visualization": pageViz, "Download": pageDownload, "Library": pageLibrary,
   };
 
