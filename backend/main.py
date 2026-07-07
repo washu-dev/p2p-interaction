@@ -92,7 +92,8 @@ def health():
         "git_sha": config.GIT_SHA,
         "deployed_at": config.BUILD_TIME,
         "backend_mode": config.BACKEND_MODE,
-        "db": resultsdb.ping() if resultsdb else {"backend": None, "connected": False, "error": "results library not configured"},
+        "db": resultsdb.ping() if resultsdb else {"backend": None, "connected": False, 
+                                                  "error": "results library not configured"},
     }
 
 
