@@ -1,0 +1,24 @@
+{
+  "job_id": "lats1_run_001",
+  "submitted_by": "d.mingyue@wustl.edu",
+
+  "target_name": "LATS1",
+  "binder_name": "LATS1_b12",
+  "binder_sequence": "MKQLEDKVEELLSKNYHLENEVARLKKLVGER",
+  "composite_score": 78.4,
+  "design_metrics": {
+    "Average_i_pTM": 0.86,
+    "Average_pLDDT": 0.92,
+    " pLDDT": 91.0
+  },
+
+  "target_sequence_file": "files/LATS1.fasta",
+  "target_structure_file": "files/LATS1_target.pdb",
+  "binder_structure_file": "files/LATS1_b12_best.pdb",
+  "selectivity_graph_file": "files/LATS1_b12_selectivity.png",
+
+  "selectivity": [
+    { "kinase": "LATS1", "best_iptm": 0.71, "avg_iptm": 0.66, "iptm_values": [0.71, 0.68, 0.60] },
+    { "kinase": "LATS2", "best_iptm": 0.42, "avg_iptm": 0.38, "iptm_values": [0.42, 0.36, 0.36] }
+  ]
+}
