@@ -82,6 +82,20 @@ def _maybe_publish(job):
         print(f"[results-library] publish failed for {job['id']}: {e}")
 
 
+@app.get("/api/health")
+def health():
+    """ALB target-group health check. Always 200 so a DB outage doesn't pull
+    every task out of rotation — the `db` field reports connectivity instead.
+    """
+    return {
+        "status": "ok",
+        "git_sha": config.GIT_SHA,
+        "deployed_at": config.BUILD_TIME,
+        "backend_mode": config.BACKEND_MODE,
+        "db": resultsdb.ping() if resultsdb else {"backend": None, "connected": False, "error": "results library not configured"},
+    }
+
+
 @app.get("/api/config")
 def get_config():
     return {

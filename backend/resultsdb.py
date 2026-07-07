@@ -88,6 +88,22 @@ def _rows(cur):
     return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
 
 
+def ping() -> dict:
+    """Round-trip the DB to prove connectivity, for /api/health. Never raises."""
+    backend = "postgres" if _pg() else "sqlite"
+    try:
+        conn = _connect()
+        try:
+            cur = conn.cursor()
+            _exec(cur, "SELECT 1")
+            cur.fetchall()
+        finally:
+            conn.close()
+        return {"backend": backend, "connected": True}
+    except Exception as e:  # noqa: BLE001 — report the failure, don't crash /api/health
+        return {"backend": backend, "connected": False, "error": str(e)}
+
+
 def publish(job: dict, design: dict, selectivity: list[dict], submitted_by: str):
     """Insert one binder + its per-kinase rows. Idempotent on job_id."""
     conn = _connect()

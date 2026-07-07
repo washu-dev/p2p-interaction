@@ -11,6 +11,12 @@ RUN npm run build
 # ---- Stage 2: Python runtime ----
 FROM python:3.11-slim AS base
 
+# Surfaced via /api/health so a deployed task reports what's actually running.
+ARG GIT_SHA=unknown
+ARG BUILD_TIME=unknown
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILD_TIME=${BUILD_TIME}
+
 # Security: run as non-root
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 

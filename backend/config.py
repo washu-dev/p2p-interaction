@@ -22,6 +22,11 @@ FRONTEND_DIR = GUI_DIR / "web" / "dist"
 # "ssh"   -> backend runs OFF-cluster (e.g. AWS), drives the login node via Paramiko
 BACKEND_MODE = os.environ.get("BINDGUI_BACKEND", "mock").lower()
 
+# Baked in at image build time (see Dockerfile ARGs) so /api/health can report
+# what's actually deployed without needing a git checkout inside the container.
+GIT_SHA = os.environ.get("GIT_SHA", "unknown")
+BUILD_TIME = os.environ.get("BUILD_TIME", "unknown")
+
 DATA_DIR = Path(os.environ.get("BINDGUI_DATA_DIR", GUI_DIR / "data"))
 JOBS_DIR = DATA_DIR / "jobs"
 DB_PATH = Path(os.environ.get("BINDGUI_DB", DATA_DIR / "bindgui.sqlite"))
