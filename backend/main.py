@@ -97,6 +97,19 @@ def health():
     }
 
 
+@app.get("/api/binders")
+def list_binders(user: dict = Depends(require_user)):
+    """Debug endpoint: joins binders + artifacts + selectivity straight from
+    the DB, to verify the app is actually reading RDS (not the SQLite fallback).
+    """
+    if resultsdb is None:
+        raise HTTPException(503, "results library not configured")
+    try:
+        return {"binders": resultsdb.list_binders_full()}
+    except Exception as e:  # noqa: BLE001 — surface the real DB error to the caller
+        raise HTTPException(500, f"query failed: {e}") from e
+
+
 @app.get("/api/config")
 def get_config():
     return {

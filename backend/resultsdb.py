@@ -81,11 +81,77 @@ def init_results_db():
         conn.commit()
     finally:
         conn.close()
+    ensure_artifacts_table()
+
+
+def ensure_artifacts_table() -> None:
+    """Create the file table if absent. bytea on Postgres, BLOB on SQLite.
+
+    Kept alongside the other two tables so /api/binders (which joins all
+    three) works on a fresh DB without requiring publish_run.py to run first.
+    """
+    blob = "BYTEA" if _pg() else "BLOB"
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur, f"""
+            CREATE TABLE IF NOT EXISTS public_binder_artifacts (
+                id           TEXT PRIMARY KEY,
+                binder_id    TEXT,
+                kind         TEXT,
+                filename     TEXT,
+                content_type TEXT,
+                content      {blob},
+                created_at   REAL
+            )
+        """)  # noqa: S608 — `blob` is a fixed token from a 2-value branch, not user input
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _rows(cur):
     cols = [c[0] for c in cur.description]
     return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
+
+
+def list_binders_full() -> list[dict]:
+    """Debug/verification query joining binders + artifacts + selectivity.
+
+    Column names collide across these three tables (id, binder_id, created_at),
+    so every column is aliased explicitly rather than using bare `SELECT *` —
+    a naive dict(zip(columns, row)) would otherwise silently overwrite e.g.
+    pb.id with ps.id. `pba.content` is raw bytes (BYTEA/BLOB); it's base64-
+    encoded since JSON has no binary type.
+    """
+    import base64
+
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur, """
+            SELECT
+                pb.id AS binder_id, pb.job_id, pb.target_name, pb.binder_name,
+                pb.binder_sequence, pb.composite_score, pb.design_metrics,
+                pb.submitted_by, pb.created_at AS binder_created_at,
+                pba.id AS artifact_id, pba.kind AS artifact_kind,
+                pba.filename AS artifact_filename, pba.content_type AS artifact_content_type,
+                pba.content AS artifact_content, pba.created_at AS artifact_created_at,
+                ps.id AS selectivity_id, ps.kinase, ps.best_iptm, ps.avg_iptm, ps.iptm_values
+            FROM public_binders pb, public_binder_artifacts pba, public_selectivity ps
+            WHERE pb.id = pba.binder_id AND pb.id = ps.binder_id
+        """)
+        cols = [c[0] for c in cur.description]
+        rows = []
+        for r in cur.fetchall():
+            row = dict(zip(cols, r, strict=False))
+            content = row.get("artifact_content")
+            if content is not None:
+                row["artifact_content"] = base64.b64encode(bytes(content)).decode("ascii")
+            rows.append(row)
+        return rows
+    finally:
+        conn.close()
 
 
 def ping() -> dict:

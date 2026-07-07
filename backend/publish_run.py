@@ -52,27 +52,6 @@ ARTIFACT_KINDS = {
 }
 
 
-def ensure_artifacts_table() -> None:
-    """Create the file table if absent. bytea on Postgres, BLOB on SQLite."""
-    blob = "BYTEA" if resultsdb._pg() else "BLOB"
-    conn = resultsdb._connect()
-    try:
-        cur = conn.cursor()
-        resultsdb._exec(cur, f"""
-            CREATE TABLE IF NOT EXISTS public_binder_artifacts (
-                id           TEXT PRIMARY KEY,
-                binder_id    TEXT,
-                kind         TEXT,
-                filename     TEXT,
-                content_type TEXT,
-                content      {blob},
-                created_at   REAL
-            )
-        """)  # noqa: S608 — `blob` is a fixed token from a 2-value branch, not user input
-        conn.commit()
-    finally:
-        conn.close()
-
 
 def _binder_id_for_job(job_id: str) -> str | None:
     conn = resultsdb._connect()
@@ -192,9 +171,7 @@ def main(argv: list[str]) -> int:
 
     target = "RDS Postgres" if resultsdb._pg() else f"SQLite ({resultsdb.config.RESULTS_SQLITE})"
     print(f"target DB: {target}")
-    resultsdb.init_results_db()
-    if not args.dry_run:
-        ensure_artifacts_table()
+    resultsdb.init_results_db()  # also ensures public_binder_artifacts now
 
     for p in paths:
         try:
