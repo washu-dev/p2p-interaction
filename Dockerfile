@@ -34,11 +34,13 @@ RUN pip install --no-cache-dir -r backend/requirements.txt && \
 COPY backend/ backend/
 COPY --from=web /web/dist web/dist
 
-RUN mkdir -p data/jobs && chown -R appuser:appgroup /app
+RUN mkdir -p data/jobs && chmod +x backend/entrypoint.sh && chown -R appuser:appgroup /app
 
 USER appuser
 
 EXPOSE 8000
 
-# Launched from project root so --app-dir backend keeps relative paths intact
-CMD ["uvicorn", "main:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8000"]
+# entrypoint.sh fetches DB_PASSWORD from AWS Secrets Manager into backend/config.json
+# (skipped for BINDGUI_BACKEND=mock) then execs uvicorn, launched from project root
+# so --app-dir backend keeps relative paths intact.
+ENTRYPOINT ["backend/entrypoint.sh"]
