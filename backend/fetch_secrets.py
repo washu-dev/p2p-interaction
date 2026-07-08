@@ -6,9 +6,12 @@ stays a plain ECS task-definition environment variable, since those aren't
 sensitive on their own. config.py's _db_setting() prefers config.json over
 the environment, so this file only needs to carry the secret values.
 
-Intentionally skipped when BINDGUI_BACKEND=mock (local/dev has no AWS access
-and no RDS to connect to) or when config.json already exists (a developer's
-hand-written local override wins and is never clobbered).
+Intentionally skipped unless BINDGUI_FETCH_SECRETS=true (local/dev has no AWS
+access and no RDS to connect to by default) or when config.json already
+exists (a developer's hand-written local override wins and is never
+clobbered). Deliberately independent of BINDGUI_BACKEND — the DB connection
+and the job-execution runner (mock/slurm/ssh) are unrelated concerns, and a
+deployment may want real Postgres while still simulating jobs, or vice versa.
 """
 import json
 import os
@@ -23,8 +26,8 @@ AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"
 
 
 def main() -> int:
-    if os.environ.get("BINDGUI_BACKEND", "mock").lower() == "mock":
-        print("[fetch_secrets] BINDGUI_BACKEND=mock — skipping Secrets Manager fetch")
+    if os.environ.get("BINDGUI_FETCH_SECRETS", "false").lower() != "true":
+        print("[fetch_secrets] BINDGUI_FETCH_SECRETS not set to true — skipping Secrets Manager fetch")
         return 0
 
     if CONFIG_PATH.exists():
