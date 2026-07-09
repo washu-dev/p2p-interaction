@@ -64,7 +64,7 @@ MOCK_STAGE_SEC = int(os.environ.get("BINDGUI_MOCK_STAGE_SEC", "4"))
 # BINDGUI_TARGET_FASTA_DIR on the cluster: the profile stage builds one
 # binder:kinase complex per file and labels the plot by these names.
 SAMPLE_KINASES = [
-    "LATS1", "LATS2", "NDR1", "NDR2", "ROCK1", "ROCK2", "Map4k4",
+    "PDL1", "LATS1", "LATS2", "NDR1", "NDR2", "ROCK1", "ROCK2", "Map4k4",
 ]
 
 # ---------------------------------------------------------------------------

@@ -55,10 +55,13 @@ def params_key(file_sha: str, settings: dict) -> str:
 def refresh(job):
     """Re-poll the runner for unfinished jobs and persist any change."""
     if job and job["status"] in ("PENDING", "RUNNING"):
-        overall, stages, err = runner.poll(job, job_dir(job["id"]))
-        result = str(job_dir(job["id"]) / "result.png") if overall == "COMPLETED" else None
-        db.update_job(job["id"], status=overall, stages=stages, error=err, result_path=result)
-        job = db.get_job(job["id"])
+        try:
+            overall, stages, err = runner.poll(job, job_dir(job["id"]))
+            result = str(job_dir(job["id"]) / "result.png") if overall == "COMPLETED" else None
+            db.update_job(job["id"], status=overall, stages=stages, error=err, result_path=result)
+            job = db.get_job(job["id"])
+        except Exception as e:  # noqa: BLE001 — a poll failure must not 500 the whole list
+            print(f"[poll] {job['id']} poll failed, leaving as-is: {e}")
     if job and job["status"] == "COMPLETED":
         _maybe_publish(job)
     return job

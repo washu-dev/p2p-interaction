@@ -69,7 +69,11 @@ def _classify(squeue_out, sacct_out, artifact_exists):
     states = [x.strip() for x in (sacct_out or "").splitlines() if x.strip()]
     final = states[0] if states else ""
     if final.startswith("COMPLETED"):
-        return "COMPLETED" if artifact_exists else "FAILED"
+        # Trust SLURM: every stage runs with `set -euo pipefail`, so a COMPLETED
+        # job produced its artifact. (Don't downgrade to FAILED on a missing
+        # artifact — a transient SSH hiccup on the `test -e` check would then
+        # wrongly, and permanently, mark a good stage FAILED.)
+        return "COMPLETED"
     if final.startswith("CANCELLED"):
         return "CANCELLED"
     if final:
@@ -238,15 +242,27 @@ class RemoteSlurmRunner:
         rjob = self._remote_jobdir(job["id"])
         self.ssh.mkdirs(rjob)
 
-        # Deploy the pipeline scripts once (idempotent).
-        if not self.ssh.exists(config.REMOTE_PIPELINE_DIR + "/select_top_binder.py"):
-            self.ssh.put_dir(config.PIPELINE_DIR, config.REMOTE_PIPELINE_DIR)
+        # Deploy the pipeline scripts every submit. They're a handful of small
+        # files, and an "upload only if missing" guard silently ships a stale
+        # copy whenever a script/template changes — a footgun during iteration.
+        self.ssh.put_dir(config.PIPELINE_DIR, config.REMOTE_PIPELINE_DIR)
 
         # Upload this job's inputs (written locally by main.py).
-        for fname in ("target.fasta", "target.pdb", "settings_target.json", "targets.txt"):
+        for fname in ("target.fasta", "target.pdb", "targets.txt"):
             local = job_dir / fname
             if local.exists():
                 self.ssh.put(str(local), posixpath.join(rjob, fname))
+
+        # settings_target.json holds absolute paths (starting_pdb, design_path)
+        # that main.py wrote for the LOCAL filesystem. In ssh mode the file runs
+        # on the cluster, so rewrite those two to the remote job dir before upload
+        # — otherwise BindCraft tries to open the laptop's path and dies.
+        st_local = job_dir / "settings_target.json"
+        if st_local.exists():
+            st = json.loads(st_local.read_text())
+            st["starting_pdb"] = posixpath.join(rjob, "target.pdb")
+            st["design_path"] = posixpath.join(rjob, "bindcraft_out") + "/"
+            self.ssh.write_text(posixpath.join(rjob, "settings_target.json"), json.dumps(st, indent=2))
 
         P = self._paths(rjob)
         dep = None
