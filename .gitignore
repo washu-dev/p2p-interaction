@@ -19,6 +19,7 @@ tsconfig.tsbuildinfo
 
 # Runtime data
 data/jobs/
+data/library_targets/
 data/*.sqlite
 *.sqlite
 *.db

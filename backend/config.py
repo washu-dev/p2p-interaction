@@ -122,6 +122,15 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 DB_NAME = os.environ.get("DB_NAME", "")
 RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
 
+# ---------------------------------------------------------------------------
+# Shared target library — FASTA/PDB files (fetched from UniProt or uploaded
+# directly) that any signed-in user can search and reuse as a pipeline input,
+# instead of re-fetching/re-uploading a target someone already added.
+# Same Postgres-in-prod / SQLite-in-dev split as the results library above.
+# ---------------------------------------------------------------------------
+LIBRARY_TARGETS_DIR = DATA_DIR / "library_targets"
+LIBRARY_SQLITE = Path(os.environ.get("BINDGUI_LIBRARY_SQLITE", DATA_DIR / "library.sqlite"))
+
 ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
 # A single CONFIDENTIAL web-app registration (client id + secret + redirect URI).
 ENTRA_CLIENT_ID = os.environ.get("BINDGUI_ENTRA_CLIENT_ID", "")
@@ -133,6 +142,7 @@ AUTH_SCOPES = os.environ.get("BINDGUI_AUTH_SCOPES", "openid profile email")
 AUTHORITY = f"https://login.microsoftonline.com/{ENTRA_TENANT_ID}"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+LIBRARY_TARGETS_DIR.mkdir(parents=True, exist_ok=True)
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 
