@@ -10,25 +10,25 @@ from __future__ import annotations
 
 import csv
 import io
-import urllib.error
-import urllib.parse
-import urllib.request
+
+import httpx
 
 API = "https://rest.uniprot.org/uniprotkb"
 FIELDS = "accession,id,reviewed,protein_name,gene_names,organism_name,length,ft_domain"
 _COLS = ["accession", "entry_id", "reviewed", "protein_name", "gene_names", "organism", "length", "domains"]
+_HEADERS = {"User-Agent": "bindcraft-gui/1.0"}
 
 
 class UniprotError(Exception):
     pass
 
 
-def _get(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "bindcraft-gui/1.0"})
+def _get(url: str, params: dict | None = None) -> bytes:
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read()
-    except urllib.error.URLError as e:
+        r = httpx.get(url, params=params, headers=_HEADERS, timeout=30)
+        r.raise_for_status()
+        return r.content
+    except httpx.HTTPError as e:
         raise UniprotError(f"could not reach UniProt: {e}") from e
 
 
@@ -47,10 +47,9 @@ def search(protein: str, organism: str = "Homo sapiens", size: int = 5) -> list[
         "format": "tsv",
         "size": str(size),
     }
-    url = f"{API}/search?{urllib.parse.urlencode(params)}"
-    text = _get(url).decode("utf-8", errors="replace")
+    text = _get(f"{API}/search", params=params).decode("utf-8", errors="replace")
     rows = list(csv.reader(io.StringIO(text), delimiter="\t"))[1:]  # skip header row
-    candidates = [dict(zip(_COLS, r + [""] * (len(_COLS) - len(r)))) for r in rows if r]
+    candidates = [dict(zip(_COLS, r + [""] * (len(_COLS) - len(r)), strict=False)) for r in rows if r]
     for c in candidates:
         c["reviewed"] = c["reviewed"].strip().lower() == "reviewed"
     # Reviewed (Swiss-Prot) entries first, preserving UniProt's own relevance order otherwise.
@@ -62,4 +61,4 @@ def fetch_fasta(accession: str) -> str:
     """Download the FASTA record for a UniProt accession (e.g. O95835)."""
     if not accession or not accession.replace("-", "").isalnum():
         raise UniprotError(f"invalid accession: {accession!r}")
-    return _get(f"{API}/{urllib.parse.quote(accession)}.fasta").decode("utf-8", errors="replace")
+    return _get(f"{API}/{accession}.fasta").decode("utf-8", errors="replace")

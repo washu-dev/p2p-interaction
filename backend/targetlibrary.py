@@ -65,7 +65,7 @@ def init_library_db():
 
 def _rows(cur):
     cols = [c[0] for c in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+    return [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
 
 
 def _file_path(target_id: str, input_type: str) -> Path:
@@ -132,7 +132,7 @@ def get_target(target_id: str) -> dict | None:
     conn, ph = _connect()
     try:
         cur = conn.cursor()
-        cur.execute(f"SELECT * FROM library_targets WHERE id = {ph}", (target_id,))
+        cur.execute(f"SELECT * FROM library_targets WHERE id = {ph}", (target_id,))  # noqa: S608 — `ph` is a fixed placeholder, not user input
         rows = _rows(cur)
         return rows[0] if rows else None
     finally:
