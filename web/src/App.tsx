@@ -219,7 +219,7 @@ export default function App() {
     finally { setSearching(false); }
   }
 
-  async function useUniprotCandidate(c: UniprotCandidate) {
+  async function selectUniprotCandidate(c: UniprotCandidate) {
     setFetchingAcc(c.accession); setUploadNote(null);
     try {
       const token = await getToken();
@@ -247,7 +247,7 @@ export default function App() {
     finally { setLibLoading(false); }
   }
 
-  async function useLibraryTarget(t: LibraryTarget) {
+  async function selectLibraryTarget(t: LibraryTarget) {
     setUsingTargetId(t.id); setUploadNote(null);
     try {
       const token = await getToken();
@@ -467,7 +467,7 @@ export default function App() {
                           <td className="small">{c.organism}</td>
                           <td>
                             <button className={"btn" + (isSelected ? "" : " ghost")} disabled={fetchingAcc === c.accession}
-                              onClick={() => useUniprotCandidate(c)}>
+                              onClick={() => selectUniprotCandidate(c)}>
                               {fetchingAcc === c.accession ? "Downloading…" : isSelected ? "✓ Selected" : "Use this"}
                             </button>
                           </td>
@@ -636,7 +636,7 @@ export default function App() {
                           <td className="small">{c.length} aa</td>
                           <td>
                             <button className={"btn" + (isSelected ? "" : " ghost")} disabled={fetchingAcc === c.accession}
-                              onClick={() => useUniprotCandidate(c)}>
+                              onClick={() => selectUniprotCandidate(c)}>
                               {fetchingAcc === c.accession ? "Downloading…" : isSelected ? "✓ Selected" : "Download"}
                             </button>
                           </td>
@@ -672,7 +672,7 @@ export default function App() {
                         <td className="small">{t.source === "uniprot" ? "UniProt" : "Upload"}</td>
                         <td className="small" style={{ color: "var(--muted)" }}>{t.submitted_by}</td>
                         <td>
-                          <button className="btn ghost" disabled={usingTargetId === t.id} onClick={() => useLibraryTarget(t)}>
+                          <button className="btn ghost" disabled={usingTargetId === t.id} onClick={() => selectLibraryTarget(t)}>
                             {usingTargetId === t.id ? "Loading…" : "Use this"}
                           </button>
                         </td>
