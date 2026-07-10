@@ -1,0 +1,9 @@
+# Force LF for shell / pipeline / python files. These are rendered locally and
+# uploaded to the Linux cluster, so CRLF line endings break them: a CRLF
+# "#!/bin/bash" is an invalid interpreter, and CRLF in data files (e.g.
+# targets.txt) breaks shell parsing of each line. Keep them LF everywhere,
+# regardless of a contributor's core.autocrlf setting.
+*.sh     text eol=lf
+*.sbatch text eol=lf
+*.tmpl   text eol=lf
+*.py     text eol=lf

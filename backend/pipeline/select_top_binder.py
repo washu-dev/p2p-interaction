@@ -9,7 +9,7 @@ RMSD / sequence / clash metrics, picks the highest-scoring design, locates its
 <Design>.pdb (preferring an Accepted/ dir), and copies it to <dest.pdb>.
 
 Also writes <dest_dir>/design_result.json (binder name, sequence, composite
-score, and key metrics) for the shared results library. Pure standard library;
+score, and key metrics) for the binder library. Pure standard library;
 falls back to the newest Accepted/*.pdb if the stats CSV is missing/unusable.
 """
 import csv
@@ -139,11 +139,15 @@ def from_csv(out_dir):
 
 def find_pdb(root, design_name):
     stem = design_name[:-4] if design_name.lower().endswith(".pdb") else design_name
+    # BindCraft names the accepted file <Design>_model<N>.pdb, while the stats CSV
+    # 'Design' column has no _model suffix — so match by prefix, not exact name.
+    # The Accepted/Ranked/ copies are prefixed (e.g. "1_<Design>..."), so a
+    # "<stem>*.pdb" glob naturally prefers the clean Accepted/<stem>_model*.pdb.
     for pattern in (
-        os.path.join(root, "**", "Accepted", stem + ".pdb"),
-        os.path.join(root, "**", stem + ".pdb"),
+        os.path.join(root, "**", "Accepted", stem + "*.pdb"),
+        os.path.join(root, "**", stem + "*.pdb"),
     ):
-        hits = glob.glob(pattern, recursive=True)
+        hits = sorted(glob.glob(pattern, recursive=True))
         if hits:
             return hits[0]
     return None

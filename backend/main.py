@@ -4,19 +4,22 @@ Run from gui/:
     uvicorn main:app --reload --app-dir backend --port 8000
 """
 import hashlib
+import io
 import json
 import time
 import uuid
+import zipfile
 from pathlib import Path
 
 import config
 import db
+import kinase_families
 import targetlibrary
 import uniprot
 from auth import require_user
 from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from runner import get_runner
 from stages import build_stages, overall_status
@@ -58,17 +61,20 @@ def params_key(file_sha: str, settings: dict) -> str:
 def refresh(job):
     """Re-poll the runner for unfinished jobs and persist any change."""
     if job and job["status"] in ("PENDING", "RUNNING"):
-        overall, stages, err = runner.poll(job, job_dir(job["id"]))
-        result = str(job_dir(job["id"]) / "result.png") if overall == "COMPLETED" else None
-        db.update_job(job["id"], status=overall, stages=stages, error=err, result_path=result)
-        job = db.get_job(job["id"])
+        try:
+            overall, stages, err = runner.poll(job, job_dir(job["id"]))
+            result = str(job_dir(job["id"]) / "result.png") if overall == "COMPLETED" else None
+            db.update_job(job["id"], status=overall, stages=stages, error=err, result_path=result)
+            job = db.get_job(job["id"])
+        except Exception as e:  # noqa: BLE001 — a poll failure must not 500 the whole list
+            print(f"[poll] {job['id']} poll failed, leaving as-is: {e}")
     if job and job["status"] == "COMPLETED":
         _maybe_publish(job)
     return job
 
 
 def _maybe_publish(job):
-    """If the user consented, publish results to the shared library (idempotent)."""
+    """If the user consented, publish results to the binder library (idempotent)."""
     if resultsdb is None or not job["settings"].get("make_public"):
         return
     d = job_dir(job["id"])
@@ -83,6 +89,34 @@ def _maybe_publish(job):
         flag.write_text("1")
     except Exception as e:  # noqa: BLE001 — never let publishing break polling
         print(f"[results-library] publish failed for {job['id']}: {e}")
+
+
+@app.get("/api/health")
+def health():
+    """ALB target-group health check. Always 200 so a DB outage doesn't pull
+    every task out of rotation — the `db` field reports connectivity instead.
+    """
+    return {
+        "status": "ok",
+        "git_sha": config.GIT_SHA,
+        "deployed_at": config.BUILD_TIME,
+        "backend_mode": config.BACKEND_MODE,
+        "db": resultsdb.ping() if resultsdb else {"backend": None, "connected": False,
+                                                  "error": "results library not configured"},
+    }
+
+
+@app.get("/api/binders")
+def list_binders(user: dict = Depends(require_user)):
+    """Debug endpoint: joins binders + artifacts + selectivity straight from
+    the DB, to verify the app is actually reading RDS (not the SQLite fallback).
+    """
+    if resultsdb is None:
+        raise HTTPException(503, "results library not configured")
+    try:
+        return {"binders": resultsdb.list_binders_full()}
+    except Exception as e:  # noqa: BLE001 — surface the real DB error to the caller
+        raise HTTPException(500, f"query failed: {e}") from e
 
 
 @app.get("/api/config")
@@ -214,9 +248,12 @@ async def create_job(
         "targets": p.get("targets") or [],
     }
     key = params_key(file_sha, settings)
-    # Consent + submitter are recorded AFTER the key so they don't affect dedup.
+    # Consent, submitter and the RIS/SLURM account are recorded AFTER the key so
+    # they don't affect dedup (they don't change the scientific result).
     settings["make_public"] = bool(p.get("make_public"))
     settings["submitted_by"] = user.get("preferred_username") or user.get("sub") or "unknown"
+    settings["slurm_account"] = (p.get("slurm_account") or "").strip()
+    settings["max_runtime_hours"] = max(1, int(p.get("max_runtime_hours") or 15))
 
     if not p.get("force"):
         cached = db.find_cached(key)
@@ -280,10 +317,106 @@ def library(
     q: str | None = None,
     user: dict = Depends(require_user),
 ):
-    """Shared, opt-in results library — visible to any signed-in user."""
+    """Binder library — opt-in published binders, visible to any signed-in user."""
     if resultsdb is None:
-        return {"results": [], "note": "results library not configured"}
+        return {"results": [], "note": "binder library not configured"}
     return {"results": resultsdb.list_results(kinase=kinase, target=target, q=q)}
+
+
+@app.get("/api/kinase-families")
+def kinase_family_map(user: dict = Depends(require_user)):
+    """Manning kinome groups → member kinases, for the family selector."""
+    return {"groups": {g: kinase_families.kinases_in(g) for g in kinase_families.groups()}}
+
+
+def _library_summary(b: dict) -> str:
+    lines = [
+        "BindCraft Binder Library — Summary",
+        "=" * 50, "",
+        f"Binder name:     {b.get('binder_name', '')}",
+        f"Target:          {b.get('target_name', '')}",
+        f"Composite score: {b.get('composite_score', '')}",
+        f"Submitted by:    {b.get('submitted_by', '')}",
+        f"Sequence:        {b.get('binder_sequence', '')}",
+    ]
+    dm = b.get("design_metrics") or {}
+    if dm:
+        lines += ["", "Design metrics", "-" * 50]
+        lines += [f"{k}: {v}" for k, v in dm.items()]
+    sel = b.get("selectivity") or []
+    if sel:
+        lines += ["", "Selectivity (average ipTM, most cross-reactive first)", "-" * 50]
+        for s in sorted(sel, key=lambda x: (x.get("avg_iptm") or 0), reverse=True):
+            lines += [f"{s['kinase']}: {s.get('avg_iptm')}"]
+    return "\n".join(str(x) for x in lines) + "\n"
+
+
+def _avg_graph_png(binder: dict, family: str | None) -> bytes:
+    """Return the cached avg-ipTM graph for (binder, family), generating + caching
+    it in RDS on first request so repeat views need no regeneration."""
+    key = "ALL" if not family or family.upper() == "ALL" else family
+    kind = f"graph_avg_{key}"
+    cached = resultsdb.get_artifact(binder["id"], kind)
+    if cached and cached.get("content"):
+        return cached["content"]
+    import graphs  # lazy: pulls in matplotlib only when a graph is actually needed
+    png = graphs.avg_iptm_png(
+        binder["target_name"], binder["selectivity"],
+        family=None if key == "ALL" else key,
+    )
+    resultsdb.put_artifact(binder["id"], kind, f"iptm_avg_{key}.png", "image/png", png)
+    return png
+
+
+@app.get("/api/library/{binder_id}/graph.png")
+def library_graph(binder_id: str, family: str = "ALL", user: dict = Depends(require_user)):
+    """Average-ipTM graph for a binder, whole panel (family=ALL) or one Manning
+    family. Generated on demand and cached back into RDS."""
+    if resultsdb is None:
+        raise HTTPException(503, "binder library not configured")
+    binder = resultsdb.get_binder(binder_id)
+    if not binder:
+        raise HTTPException(404, "binder not found")
+    png = _avg_graph_png(binder, family)
+    return Response(content=png, media_type="image/png")
+
+
+@app.get("/api/library/{binder_id}/bundle.zip")
+def library_bundle(binder_id: str, user: dict = Depends(require_user)):
+    """Zip a binder's deliverables from RDS: binder PDB + sequence, avg-ipTM plot,
+    logs (if stored), and a summary — mirroring the run Download bundle."""
+    if resultsdb is None:
+        raise HTTPException(503, "binder library not configured")
+    binder = resultsdb.get_binder(binder_id)
+    if not binder:
+        raise HTTPException(404, "binder not found")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        pdb = resultsdb.get_artifact(binder_id, "binder_structure")
+        if pdb and pdb.get("content"):
+            z.writestr("binder.pdb", pdb["content"])
+        if binder.get("binder_sequence"):
+            z.writestr(
+                "binder.fasta",
+                f">{binder.get('binder_name', 'binder')}\n{binder['binder_sequence']}\n",
+            )
+        z.writestr("iptm_plot.png", _avg_graph_png(binder, "ALL"))
+        logs = resultsdb.get_artifact(binder_id, "logs")
+        z.writestr(
+            "run_logs.txt",
+            logs["content"].decode(errors="replace")
+            if logs and logs.get("content") else "(logs not available for library binders)\n",
+        )
+        z.writestr("summary.txt", _library_summary(binder))
+
+    buf.seek(0)
+    safe = "".join(c for c in (binder.get("binder_name") or binder_id) if c.isalnum() or c in "-_") or binder_id
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="binder_{safe}.zip"'},
+    )
 
 
 @app.get("/api/jobs")
@@ -316,6 +449,85 @@ def logs(jid: str, user: dict = Depends(require_user)):
     for f in sorted(d.glob("*.log")):
         text += f"===== {f.name} =====\n{f.read_text(errors='replace')}\n"
     return {"logs": text[-40000:] or "(no logs yet)"}
+
+
+def _run_summary(job: dict, design: dict) -> str:
+    s = job.get("settings", {})
+    lines = [
+        "BindCraft Selective Binder Platform — Run Summary",
+        "=" * 50, "",
+        f"Run name:        {job.get('name', '')}",
+        f"Target:          {job.get('target_name', '')} ({job.get('input_type', '')})",
+        f"Status:          {job.get('status', '')}",
+        f"Binder name:     {s.get('binder_name', '')}",
+        f"Chains:          {s.get('chains', '')}",
+        f"Hotspots:        {s.get('target_hotspot_residues') or '(none)'}",
+        f"Binder length:   {s.get('length_min')}-{s.get('length_max')}",
+        f"Final designs:   {s.get('number_of_final_designs')}",
+        f"Filters preset:  {s.get('filters_preset', '')}",
+        f"Advanced preset: {s.get('advanced_preset', '')}",
+        f"Kinase panel:    {', '.join(s.get('targets') or [])}",
+        "",
+        f"Stages:          {'  '.join(st['key'] + ':' + st['status'] for st in job.get('stages', []))}",
+    ]
+    if design:
+        lines += [
+            "", "Top binder", "-" * 50,
+            f"Name:            {design.get('binder_name', '')}",
+            f"Composite score: {design.get('composite_score', '')}",
+            f"Sequence:        {design.get('binder_sequence', '')}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/api/jobs/{jid}/bundle.zip")
+def bundle(jid: str, user: dict = Depends(require_user)):
+    """Zip the deliverables: binder PDB + sequence, ipTM plot, logs, summary."""
+    job = db.get_job(jid)
+    d = job_dir(jid)
+    if not job or not d.exists():
+        raise HTTPException(404, "job not found")
+
+    design = {}
+    dr = d / "design_result.json"
+    if dr.exists():
+        try:
+            design = json.loads(dr.read_text())
+        except json.JSONDecodeError:
+            design = {}
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        pdb = d / "top_binder.pdb"
+        if pdb.exists():
+            z.write(pdb, "binder.pdb")
+        fasta = d / "top_binder.fasta"
+        if fasta.exists():
+            z.write(fasta, "binder.fasta")
+        elif design.get("binder_sequence"):
+            z.writestr("binder.fasta", f">{design.get('binder_name', 'binder')}\n{design['binder_sequence']}\n")
+        target_pdb = d / "target.pdb"
+        if target_pdb.exists():
+            z.write(target_pdb, "target.pdb")
+        target_fasta = d / "target.fasta"
+        if target_fasta.exists():
+            z.write(target_fasta, "target.fasta")
+        png = d / "result.png"
+        if png.exists():
+            z.write(png, "iptm_plot.png")
+        logs_text = ""
+        for f in sorted(d.glob("*.log")):
+            logs_text += f"===== {f.name} =====\n{f.read_text(errors='replace')}\n"
+        z.writestr("run_logs.txt", logs_text or "(no logs)")
+        z.writestr("summary.txt", _run_summary(job, design))
+
+    buf.seek(0)
+    safe = "".join(c for c in (job.get("target_name") or jid) if c.isalnum() or c in "-_") or jid
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="binder_{safe}.zip"'},
+    )
 
 
 @app.post("/api/jobs/{jid}/cancel")

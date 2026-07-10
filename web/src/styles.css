@@ -4,6 +4,7 @@
   --card:#ffffff; --chipbg:#eef2ff; --chipfg:#4338ca;
   --green:#16a34a; --greenbg:#dcfce7; --red:#dc2626; --redbg:#fee2e2;
   --amber:#b45309; --amberbg:#fef3c7;
+  --seq-font:'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
 }
 * { box-sizing:border-box; }
 body {
@@ -88,7 +89,7 @@ input:focus,select:focus,textarea:focus { outline:2px solid #c7d2fe; border-colo
 .note.ok { background:var(--greenbg); color:#166534; border:1px solid #bbf7d0; }
 .note.err { background:var(--redbg); color:#991b1b; border:1px solid #fecaca; }
 pre.code { background:#0b1020; color:#d6deff; border-radius:12px; padding:14px; font-size:12.5px;
-  overflow:auto; max-height:300px; white-space:pre-wrap; }
+  font-family:var(--seq-font); overflow:auto; max-height:300px; white-space:pre-wrap; }
 table { width:100%; border-collapse:collapse; font-size:13.5px; }
 th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
 th { color:var(--muted); font-weight:600; }
@@ -124,3 +125,14 @@ img.result { width:100%; border-radius:14px; background:#fff; border:1px solid v
 .simple-topbar { display:flex; justify-content:space-between; align-items:center; gap:12px;
   padding:16px 40px; background:#fff; border-bottom:1px solid var(--line); }
 .simple-wrap { max-width:860px; margin:0 auto; padding:32px 24px 60px; }
+
+/* hover info icon + tooltip */
+.infohint { position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-left: 6px; border-radius: 50%; border: 1px solid var(--line);
+  color: var(--muted); font-size: 10px; font-weight: 700; font-style: italic; cursor: help;
+  vertical-align: middle; user-select: none; }
+.infohint .tip { display: none; position: absolute; bottom: 150%; left: 50%; transform: translateX(-50%);
+  width: 250px; background: var(--ink); color: #fff; padding: 8px 10px; border-radius: 8px;
+  font: 400 12px/1.45 system-ui, sans-serif; font-style: normal; text-align: left; z-index: 40;
+  box-shadow: 0 10px 28px rgba(0,0,0,.28); }
+.infohint:hover .tip, .infohint:focus .tip { display: block; }

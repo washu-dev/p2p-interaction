@@ -4,7 +4,7 @@
 #SBATCH -A __ACCOUNT__
 #SBATCH --gres=gpu:H100:1
 #SBATCH --mem-per-gpu=80G
-#SBATCH --time=08:00:00
+#SBATCH --time=__TIME__
 #SBATCH -o __JOBDIR__/profile.log
 
 # Stage 3: selectivity profiling of the top binder against the kinase panel.
@@ -26,23 +26,29 @@ BINDER_BASE=$(basename "$JOBDIR/top_binder.pdb" .pdb)
 COMPLEX_DIR="$JOBDIR/complex/$BINDER_BASE"
 LIST="$COMPLEX_DIR/${BINDER_BASE}_list.txt"
 
-# Subset to the kinases the user selected in the GUI (if any).
+# Subset to the kinases the user selected in the GUI (if any). Strip a trailing
+# CR so a CRLF targets.txt (written by a Windows backend) still matches.
 if [ -s "$JOBDIR/targets.txt" ]; then
-    grep -F -f <(sed 's/$/_vs_/' "$JOBDIR/targets.txt") "$LIST" > "$LIST.sel" || true
+    grep -F -f <(sed 's/\r$//; s/$/_vs_/' "$JOBDIR/targets.txt") "$LIST" > "$LIST.sel" || true
     [ -s "$LIST.sel" ] && mv "$LIST.sel" "$LIST"
 fi
 
-while read -r ENTRY; do
+# Read the list up front into an array. A `while read < $LIST` loop is broken
+# here because colabfold_batch reads stdin and swallows the remaining lines, so
+# only the first kinase would ever fold. Also feed each fold </dev/null, and
+# tolerate a missing ipTM (|| true) so one bad fold doesn't kill the loop.
+mapfile -t ENTRIES < "$LIST"
+for ENTRY in "${ENTRIES[@]}"; do
     [ -z "$ENTRY" ] && continue
     echo "[profile] $(date) folding $ENTRY"
     colabfold_batch \
         --num-recycle 3 --templates --num-models 5 \
         --model-order 1,2,3,4,5 --random-seed 0 \
-        "$COMPLEX_DIR/${ENTRY}.fasta" "$COMPLEX_DIR/${ENTRY}"
+        "$COMPLEX_DIR/${ENTRY}.fasta" "$COMPLEX_DIR/${ENTRY}" </dev/null
     tail -n6 "$COMPLEX_DIR/${ENTRY}/log.txt" | head -n5 \
         | grep -o 'ipTM=[0-9.]*' | cut -d '=' -f2 \
-        > "$COMPLEX_DIR/${ENTRY}/ipTM_data.txt"
-done < "$LIST"
+        > "$COMPLEX_DIR/${ENTRY}/ipTM_data.txt" || true
+done
 
 echo "[profile] $(date) plotting"
 python "__PIPELINE_DIR__/ipTM2graph.py" "$LIST"

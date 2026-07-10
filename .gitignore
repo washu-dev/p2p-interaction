@@ -3,7 +3,12 @@ __pycache__/
 *.py[cod]
 *.pyo
 .venv/
+.guivenv/
 venv/
+
+# Vendored AWS CLI (installed into the repo by mistake — never commit)
+backend/aws/
+awscliv2.zip
 *.egg-info/
 dist/
 build/
@@ -37,6 +42,7 @@ CLAUDE.md
 
 # Cluster / deploy secrets
 backend/gcp-db-postgresql.conf
+backend/config.json
 *.pem
 *.key
 _deploy.yaml

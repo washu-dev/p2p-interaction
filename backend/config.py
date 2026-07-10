@@ -5,6 +5,7 @@ Override anything via environment variables so the same code runs in two modes:
   * BINDGUI_BACKEND=mock   -> staged jobs are simulated on a laptop.
   * BINDGUI_BACKEND=slurm  -> real sbatch chain on the cluster login node.
 """
+import json
 import os
 from pathlib import Path
 
@@ -20,6 +21,11 @@ FRONTEND_DIR = GUI_DIR / "web" / "dist"
 # "slurm" -> backend runs ON the login node, submits via local sbatch
 # "ssh"   -> backend runs OFF-cluster (e.g. AWS), drives the login node via Paramiko
 BACKEND_MODE = os.environ.get("BINDGUI_BACKEND", "mock").lower()
+
+# Baked in at image build time (see Dockerfile ARGs) so /api/health can report
+# what's actually deployed without needing a git checkout inside the container.
+GIT_SHA = os.environ.get("GIT_SHA", "unknown")
+BUILD_TIME = os.environ.get("BUILD_TIME", "unknown")
 
 DATA_DIR = Path(os.environ.get("BINDGUI_DATA_DIR", GUI_DIR / "data"))
 JOBS_DIR = DATA_DIR / "jobs"
@@ -59,8 +65,11 @@ MOCK_TARGET_PDB = Path(os.environ.get("BINDGUI_MOCK_PDB", REPO_DIR / "example" /
 # Seconds each simulated stage takes (fold, design, profile).
 MOCK_STAGE_SEC = int(os.environ.get("BINDGUI_MOCK_STAGE_SEC", "4"))
 
+# The curated selectivity panel. These names MUST match the <name>.fasta files in
+# BINDGUI_TARGET_FASTA_DIR on the cluster: the profile stage builds one
+# binder:kinase complex per file and labels the plot by these names.
 SAMPLE_KINASES = [
-    "Map4k4", "NDR1", "STK17A", "STK17B", "MST1", "MST2", "LATS1", "LATS2",
+    "PDL1", "LATS1", "LATS2", "NDR1", "NDR2", "ROCK1", "ROCK2", "Map4k4",
 ]
 
 # ---------------------------------------------------------------------------
@@ -111,15 +120,43 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
 # ---------------------------------------------------------------------------
-# Shared results library — opt-in public store of binder + selectivity results.
+# Binder library — opt-in public store of binder + selectivity results.
 # Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
 # (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)
+#
+# Settings come from backend/config.json (gitignored, holds RDS credentials for
+# local use) with environment variables as a fallback. Per key the precedence is
+# config.json value (if present and non-empty) > env var > default. The deployed
+# container ships no config.json, so it keeps using its env vars unchanged.
 # ---------------------------------------------------------------------------
-DB_HOST = os.environ.get("DB_HOST", "").rstrip("/")
-DB_PORT = int(os.environ.get("DB_PORT", "5432"))
-DB_USER = os.environ.get("DB_USER", "")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
-DB_NAME = os.environ.get("DB_NAME", "")
+_DB_CONFIG_PATH = BASE_DIR / "config.json"
+
+
+def _load_db_config() -> dict:
+    if _DB_CONFIG_PATH.exists():
+        try:
+            return json.loads(_DB_CONFIG_PATH.read_text())
+        except (json.JSONDecodeError, OSError) as e:  # malformed file → fall back to env
+            print(f"[config] ignoring unreadable {_DB_CONFIG_PATH.name}: {e}")
+    return {}
+
+
+_DB_CFG = _load_db_config()
+
+
+def _db_setting(key: str, default: str = "") -> str:
+    """config.json value if set, else the same-named env var, else default."""
+    val = _DB_CFG.get(key)
+    if val is None or val == "":
+        val = os.environ.get(key, default)
+    return val
+
+
+DB_HOST = str(_db_setting("DB_HOST")).rstrip("/")
+DB_PORT = int(_db_setting("DB_PORT", "5432"))
+DB_USER = _db_setting("DB_USER")
+DB_PASSWORD = _db_setting("DB_PASSWORD")
+DB_NAME = _db_setting("DB_NAME")
 RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
 
 # ---------------------------------------------------------------------------

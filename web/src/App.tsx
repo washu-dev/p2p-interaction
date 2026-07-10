@@ -6,7 +6,7 @@ import { api, apiUrl, type AppConfig, type Job, type UniprotCandidate, type Libr
 
 const STEPS = [
   "Home", "Upload", "Structure Prediction", "Binder Design",
-  "Selectivity Screening", "Visualization", "Download",
+  "Selectivity Screening", "Compute Specification", "Visualization", "Download",
 ];
 
 type Validation = { ok: boolean; msg: string } | null;
@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = {
   name: "", binder_name: "", chains: "A", target_hotspot_residues: "",
   length_min: 65, length_max: 150, number_of_final_designs: 100,
   filters_preset: "", advanced_preset: "", make_public: false,
+  slurm_account: "", max_runtime_hours: 15,
 };
 
 function validateFasta(text: string): { ok: boolean; msg: string } {
@@ -55,6 +56,10 @@ export default function App() {
   const [library, setLibrary] = useState<any[]>([]);
   const [libQ, setLibQ] = useState("");
   const [libKinase, setLibKinase] = useState("");
+  const [families, setFamilies] = useState<Record<string, string[]>>({});
+  const [selBinder, setSelBinder] = useState<any | null>(null);
+  const [libFamily, setLibFamily] = useState("ALL");
+  const [graphUrl, setGraphUrl] = useState<string | null>(null);
 
   // ---- kinase search / shared target library (Upload step) ----
   const [uploadTab, setUploadTab] = useState<"search" | "library" | "file">("search");
@@ -128,9 +133,48 @@ export default function App() {
         token,
       );
       setLibrary(r.results || []);
+      setSelBinder(null);
     } catch { /* ignore */ }
   }
-  function openLibrary() { setStep("Library"); loadLibrary(); }
+  async function loadFamilies() {
+    try {
+      const token = await getToken();
+      const r = await api<{ groups: Record<string, string[]> }>("/kinase-families", token);
+      setFamilies(r.groups || {});
+    } catch { /* ignore */ }
+  }
+  function openLibrary() { setStep("Library"); loadLibrary(); loadFamilies(); }
+
+  // Fetch the avg-ipTM graph as a token-authed blob (works with auth on or off).
+  async function loadGraph(binderId: string, family: string) {
+    setGraphUrl(null);
+    try {
+      const token = await getToken();
+      const r = await fetch(
+        apiUrl(`/library/${binderId}/graph.png?family=${encodeURIComponent(family)}`),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!r.ok) throw new Error("graph failed");
+      const url = URL.createObjectURL(await r.blob());
+      setGraphUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch { setGraphUrl(null); }
+  }
+  function selectBinder(b: any) { setSelBinder(b); setLibFamily("ALL"); loadGraph(b.id, "ALL"); }
+  function changeFamily(fam: string) { setLibFamily(fam); if (selBinder) loadGraph(selBinder.id, fam); }
+
+  async function downloadBinderZip(b: any) {
+    try {
+      const token = await getToken();
+      const r = await fetch(apiUrl(`/library/${b.id}/bundle.zip`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("download failed");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob());
+      a.download = `binder_${b.binder_name || b.id}.zip`;
+      a.click(); URL.revokeObjectURL(a.href);
+    } catch (e: any) { alert(e.message); }
+  }
 
   const job = useMemo(() => jobs.find((j) => j.id === jobId) || null, [jobs, jobId]);
   const idx = STEPS.indexOf(step);
@@ -247,7 +291,9 @@ export default function App() {
       length_min: settings.length_min, length_max: settings.length_max,
       number_of_final_designs: settings.number_of_final_designs,
       filters_preset: settings.filters_preset, advanced_preset: settings.advanced_preset,
-      targets: [...selected], make_public: settings.make_public, force,
+      targets: [...selected], make_public: settings.make_public,
+      slurm_account: settings.slurm_account.trim(),
+      max_runtime_hours: settings.max_runtime_hours, force,
     }));
     try {
       const token = await getToken();
@@ -268,7 +314,7 @@ export default function App() {
     try {
       const token = await getToken();
       await api(`/jobs/${id}/cancel`, token, { method: "POST" });
-    } catch { }
+    } catch { /* best-effort cancel */ }
     refreshJobs();
   }
 
@@ -283,18 +329,20 @@ export default function App() {
       download(`run_logs_${id}.txt`, (await api<any>(`/jobs/${id}/logs`, token)).logs);
     } catch (e: any) { alert(e.message); }
   }
-  function downloadSummary(j: Job) {
-    const s = j.settings;
-    download(`summary_${j.id}.txt`, [
-      "BindCraft Selective Binder Platform — Run Summary", "=".repeat(50), "",
-      `Run name:        ${j.name}`, `Target:          ${j.target_name} (${j.input_type})`,
-      `Status:          ${j.status}`, `Binder name:     ${s.binder_name}`, `Chains:          ${s.chains}`,
-      `Hotspots:        ${s.target_hotspot_residues || "(none)"}`,
-      `Binder length:   ${s.length_min}-${s.length_max}`, `Final designs:   ${s.number_of_final_designs}`,
-      `Filters preset:  ${s.filters_preset}`, `Advanced preset: ${s.advanced_preset}`,
-      `Kinase panel:    ${(s.targets || []).join(", ")}`, "",
-      `Stages:          ${(j.stages || []).map((x) => x.key + ":" + x.status).join("  ")}`,
-    ].join("\n"));
+  async function downloadBundle(j: Job) {
+    try {
+      const token = await getToken();
+      const r = await fetch(apiUrl(`/jobs/${j.id}/bundle.zip`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as any).detail || r.statusText);
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `binder_${j.target_name}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) { alert(e.message); }
   }
 
   function reset() {
@@ -317,6 +365,9 @@ export default function App() {
       {prev ? <button className="btn ghost" onClick={() => setStep(prev)}>← {prev}</button> : <span />}
       {next ? <button className="btn" disabled={!ok} onClick={() => setStep(next)}>{label || "Continue to " + next} →</button> : <span />}
     </div>
+  );
+  const Info = ({ text }: { text: string }) => (
+    <span className="infohint" tabIndex={0}>i<span className="tip">{text}</span></span>
   );
   const Missing = ({ msg, target }: { msg: string; target: string }) => (
     <>
@@ -465,7 +516,7 @@ export default function App() {
                   <div className="row" style={{ marginTop: 14 }}>
                     <a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a>
                     <button className="btn ghost" onClick={() => downloadLogs(job.id)}>Download logs</button>
-                    <button className="btn ghost" onClick={() => downloadSummary(job)}>Download summary</button>
+                    <button className="btn ghost" onClick={() => downloadBundle(job)}>Download binder.zip</button>
                   </div>
                 </div>
               )}
@@ -733,7 +784,7 @@ export default function App() {
 
   function pageScreening() {
     if (!file) return <Missing msg="Upload a target first." target="Upload" />;
-    const canRun = panelCount > 0 && !lenBad && !!settings.binder_name.trim();
+    const canContinue = panelCount > 0 && !lenBad && !!settings.binder_name.trim();
     return (
       <>
         <Header title="Selectivity Screening" desc="Pick the kinase panel the top binder is profiled against (ipTM per kinase)." />
@@ -751,16 +802,50 @@ export default function App() {
           {!settings.binder_name.trim() && <div className="note warn" style={{ marginTop: 12 }}>Set a <b>Binder name</b> on the Binder Design step before running.</div>}
           <label className="note info" style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
             <input type="checkbox" checked={settings.make_public} onChange={(e) => setField("make_public", e.target.checked)} style={{ marginTop: 3 }} />
-            <span>Contribute these results to the <b>shared binder library</b>. Your binder <b>sequence</b>, target,
+            <span>Contribute these results to the <b>binder library</b>. Your binder <b>sequence</b>, target,
               and per-kinase ipTM metrics will be visible to other signed-in users. Leave unchecked to keep this run private.</span>
           </label>
+        </div>
+        <Footer prev="Binder Design" next="Compute Specification" ok={canContinue} />
+      </>
+    );
+  }
+
+  function pageCompute() {
+    if (!file) return <Missing msg="Upload a target first." target="Upload" />;
+    const hrs = settings.max_runtime_hours;
+    const timeOk = Number.isFinite(hrs) && hrs >= 1;
+    const canRun = panelCount > 0 && !lenBad && !!settings.binder_name.trim() && !!settings.slurm_account.trim() && timeOk;
+    return (
+      <>
+        <Header title="Compute Specification" desc="How your cluster jobs are submitted — account and time limit." />
+        <div className="panel">
+          <div className="grid2">
+            <div>
+              <label>RIS account
+                <Info text="The SLURM allocation your cluster jobs are charged to." />
+              </label>
+              <input type="text" value={settings.slurm_account}
+                onChange={(e) => setField("slurm_account", e.target.value)}
+                placeholder="your RIS account" />
+            </div>
+            <div>
+              <label>Max run time (hours)
+                <Info text="Maximum wall-clock time per stage, written as #SBATCH --time." />
+              </label>
+              <input type="number" min={1} value={hrs}
+                onChange={(e) => setField("max_runtime_hours", parseInt(e.target.value, 10))} />
+            </div>
+          </div>
+          {!settings.slurm_account.trim() && <div className="note warn" style={{ marginTop: 12 }}>Enter your RIS account to run the pipeline.</div>}
+          {!timeOk && <div className="note warn" style={{ marginTop: 12 }}>Max run time must be at least 1 hour.</div>}
           <div className="row" style={{ marginTop: 18 }}>
             <button className="btn" disabled={!canRun} onClick={() => runPipeline(false)}>🚀 Run pipeline</button>
             <span className="small" style={{ color: "var(--muted)" }}>Submits fold → design → profile to the cluster.</span>
           </div>
           {runErr && <div className="note err" style={{ marginTop: 12 }}>{runErr}</div>}
         </div>
-        <Footer prev="Binder Design" />
+        <Footer prev="Selectivity Screening" />
       </>
     );
   }
@@ -798,7 +883,7 @@ export default function App() {
           </div>
           {logText !== null && <pre className="code" style={{ marginTop: 14 }}>{logText}</pre>}
         </div>
-        <Footer prev="Selectivity Screening" next="Download" />
+        <Footer prev="Compute Specification" next="Download" />
       </>
     );
   }
@@ -814,15 +899,15 @@ export default function App() {
     );
     return (
       <>
-        <Header title="Download Results" desc="Export the selectivity plot, logs, and a run summary." />
+        <Header title="Download Results" desc="Export the selectivity plot, logs, and a binder bundle (.zip)." />
         <div className="panel">
           <div className="cards">
             <div className="card"><h4>iptm_plot.png</h4><div className="small">The ipTM-vs-kinase selectivity plot.</div>
               <div style={{ marginTop: 10 }}><a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a></div></div>
             <div className="card"><h4>run_logs.txt</h4><div className="small">Per-stage cluster logs.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadLogs(job.id)}>Download logs</button></div></div>
-            <div className="card"><h4>summary.txt</h4><div className="small">Run configuration and target panel.</div>
-              <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadSummary(job)}>Download summary</button></div></div>
+            <div className="card"><h4>binder.zip</h4><div className="small">Binder &amp; target PDB + sequence, plot, logs, and summary.</div>
+              <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadBundle(job)}>Download binder.zip</button></div></div>
           </div>
           <img className="result" style={{ marginTop: 18 }} src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="result" />
         </div>
@@ -832,11 +917,18 @@ export default function App() {
   }
 
   function pageLibrary() {
+    const binderKinases = new Set(
+      (selBinder?.selectivity || []).map((s: any) => (s.kinase || "").toUpperCase()),
+    );
+    const availFamilies = Object.entries(families)
+      .filter(([, members]) => members.some((m) => binderKinases.has(m.toUpperCase())))
+      .map(([g]) => g);
     return (
       <>
-        <span className="chip">SHARED LIBRARY</span>
+        <span className="chip">BINDER LIBRARY</span>
         <h1 className="title">Binder Library</h1>
-        <p className="sub">Binders that other users chose to share, with their per-kinase selectivity.</p>
+        <p className="sub">Published binders and their per-kinase selectivity. Click a binder to see its
+          average-ipTM graph by kinase family and download its data.</p>
         <div className="panel">
           <div className="row" style={{ marginBottom: 12 }}>
             <input type="text" placeholder="Search binder / sequence…" value={libQ}
@@ -845,16 +937,16 @@ export default function App() {
               onChange={(e) => setLibKinase(e.target.value)} style={{ maxWidth: 200 }} />
             <button className="btn" onClick={loadLibrary}>Search</button>
           </div>
-          {library.length === 0 ? <div className="empty" style={{ color: "var(--muted)" }}>No shared results yet.</div> : (
+          {library.length === 0 ? <div className="empty" style={{ color: "var(--muted)" }}>No binders yet.</div> : (
             <table>
-              <thead><tr><th>Binder</th><th>Target</th><th>Score</th><th>Selectivity (kinase: best ipTM)</th><th>By</th></tr></thead>
+              <thead><tr><th>Binder</th><th>Target</th><th>Score</th><th>By</th></tr></thead>
               <tbody>
                 {library.map((b) => (
-                  <tr key={b.id}>
+                  <tr key={b.id} onClick={() => selectBinder(b)}
+                    style={{ cursor: "pointer", background: selBinder?.id === b.id ? "var(--accent-soft, #eef)" : undefined }}>
                     <td><b>{b.binder_name}</b></td>
                     <td>{b.target_name}</td>
                     <td>{b.composite_score ?? "—"}</td>
-                    <td className="small">{(b.selectivity || []).map((s: any) => `${s.kinase}: ${s.best_iptm}`).join("  ·  ")}</td>
                     <td className="small" style={{ color: "var(--muted)" }}>{b.submitted_by}</td>
                   </tr>
                 ))}
@@ -862,6 +954,33 @@ export default function App() {
             </table>
           )}
         </div>
+
+        {selBinder && (
+          <div className="panel" style={{ marginTop: 16 }}>
+            <h3 style={{ marginTop: 0 }}>{selBinder.binder_name}{" "}
+              <span className="small" style={{ color: "var(--muted)" }}>→ {selBinder.target_name}</span></h3>
+            <div className="small" style={{ color: "var(--muted)", marginBottom: 8 }}>
+              Composite score: {selBinder.composite_score ?? "—"} · Submitted by: {selBinder.submitted_by}
+            </div>
+            {selBinder.binder_sequence && (
+              <div className="small" style={{ fontFamily: "var(--seq-font)", wordBreak: "break-all", marginBottom: 12 }}>
+                {selBinder.binder_sequence}</div>
+            )}
+            <div className="row" style={{ marginBottom: 12, alignItems: "center", gap: 10 }}>
+              <span className="small">Kinase family:</span>
+              <select value={libFamily} onChange={(e) => changeFamily(e.target.value)}
+                style={{ width: "auto", minWidth: 160 }}>
+                <option value="ALL">All kinases</option>
+                {availFamilies.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <button className="btn" onClick={() => downloadBinderZip(selBinder)}>Download binder.zip</button>
+            </div>
+            {graphUrl
+              ? <img className="result" src={graphUrl} alt="average ipTM by kinase" />
+              : <div className="empty" style={{ color: "var(--muted)" }}>Loading graph…</div>}
+          </div>
+        )}
+
         <div className="footer-nav"><button className="btn ghost" onClick={() => setStep("Home")}>← Home</button><span /></div>
       </>
     );
@@ -870,6 +989,7 @@ export default function App() {
   const pages: Record<string, () => JSX.Element> = {
     "Home": pageHome, "Upload": pageUpload, "Structure Prediction": pageStructure,
     "Binder Design": pageDesign, "Selectivity Screening": pageScreening,
+    "Compute Specification": pageCompute,
     "Visualization": pageViz, "Download": pageDownload, "Library": pageLibrary,
   };
 
@@ -906,7 +1026,7 @@ export default function App() {
         ))}
         <hr />
         <button className={"navbtn" + (step === "Library" ? " active" : "")} onClick={openLibrary}>
-          <span className="n">📚</span><span>Shared Library</span>
+          <span className="n">📚</span><span>Binder Library</span>
         </button>
         <hr />
         <div className="status">👤 <b>{userName}</b></div>
