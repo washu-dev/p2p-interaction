@@ -55,6 +55,10 @@ export default function App() {
   const [library, setLibrary] = useState<any[]>([]);
   const [libQ, setLibQ] = useState("");
   const [libKinase, setLibKinase] = useState("");
+  const [families, setFamilies] = useState<Record<string, string[]>>({});
+  const [selBinder, setSelBinder] = useState<any | null>(null);
+  const [libFamily, setLibFamily] = useState("ALL");
+  const [graphUrl, setGraphUrl] = useState<string | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -111,9 +115,48 @@ export default function App() {
         token,
       );
       setLibrary(r.results || []);
+      setSelBinder(null);
     } catch { /* ignore */ }
   }
-  function openLibrary() { setStep("Library"); loadLibrary(); }
+  async function loadFamilies() {
+    try {
+      const token = await getToken();
+      const r = await api<{ groups: Record<string, string[]> }>("/kinase-families", token);
+      setFamilies(r.groups || {});
+    } catch { /* ignore */ }
+  }
+  function openLibrary() { setStep("Library"); loadLibrary(); loadFamilies(); }
+
+  // Fetch the avg-ipTM graph as a token-authed blob (works with auth on or off).
+  async function loadGraph(binderId: string, family: string) {
+    setGraphUrl(null);
+    try {
+      const token = await getToken();
+      const r = await fetch(
+        apiUrl(`/library/${binderId}/graph.png?family=${encodeURIComponent(family)}`),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!r.ok) throw new Error("graph failed");
+      const url = URL.createObjectURL(await r.blob());
+      setGraphUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch { setGraphUrl(null); }
+  }
+  function selectBinder(b: any) { setSelBinder(b); setLibFamily("ALL"); loadGraph(b.id, "ALL"); }
+  function changeFamily(fam: string) { setLibFamily(fam); if (selBinder) loadGraph(selBinder.id, fam); }
+
+  async function downloadBinderZip(b: any) {
+    try {
+      const token = await getToken();
+      const r = await fetch(apiUrl(`/library/${b.id}/bundle.zip`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("download failed");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob());
+      a.download = `binder_${b.binder_name || b.id}.zip`;
+      a.click(); URL.revokeObjectURL(a.href);
+    } catch (e: any) { alert(e.message); }
+  }
 
   const job = useMemo(() => jobs.find((j) => j.id === jobId) || null, [jobs, jobId]);
   const idx = STEPS.indexOf(step);
@@ -408,7 +451,7 @@ export default function App() {
           {!settings.binder_name.trim() && <div className="note warn" style={{ marginTop: 12 }}>Set a <b>Binder name</b> on the Binder Design step before running.</div>}
           <label className="note info" style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
             <input type="checkbox" checked={settings.make_public} onChange={(e) => setField("make_public", e.target.checked)} style={{ marginTop: 3 }} />
-            <span>Contribute these results to the <b>shared binder library</b>. Your binder <b>sequence</b>, target,
+            <span>Contribute these results to the <b>binder library</b>. Your binder <b>sequence</b>, target,
               and per-kinase ipTM metrics will be visible to other signed-in users. Leave unchecked to keep this run private.</span>
           </label>
         </div>
@@ -523,11 +566,18 @@ export default function App() {
   }
 
   function pageLibrary() {
+    const binderKinases = new Set(
+      (selBinder?.selectivity || []).map((s: any) => (s.kinase || "").toUpperCase()),
+    );
+    const availFamilies = Object.entries(families)
+      .filter(([, members]) => members.some((m) => binderKinases.has(m.toUpperCase())))
+      .map(([g]) => g);
     return (
       <>
-        <span className="chip">SHARED LIBRARY</span>
+        <span className="chip">BINDER LIBRARY</span>
         <h1 className="title">Binder Library</h1>
-        <p className="sub">Binders that other users chose to share, with their per-kinase selectivity.</p>
+        <p className="sub">Published binders and their per-kinase selectivity. Click a binder to see its
+          average-ipTM graph by kinase family and download its data.</p>
         <div className="panel">
           <div className="row" style={{ marginBottom: 12 }}>
             <input type="text" placeholder="Search binder / sequence…" value={libQ}
@@ -536,16 +586,16 @@ export default function App() {
               onChange={(e) => setLibKinase(e.target.value)} style={{ maxWidth: 200 }} />
             <button className="btn" onClick={loadLibrary}>Search</button>
           </div>
-          {library.length === 0 ? <div className="empty" style={{ color: "var(--muted)" }}>No shared results yet.</div> : (
+          {library.length === 0 ? <div className="empty" style={{ color: "var(--muted)" }}>No binders yet.</div> : (
             <table>
-              <thead><tr><th>Binder</th><th>Target</th><th>Score</th><th>Selectivity (kinase: best ipTM)</th><th>By</th></tr></thead>
+              <thead><tr><th>Binder</th><th>Target</th><th>Score</th><th>By</th></tr></thead>
               <tbody>
                 {library.map((b) => (
-                  <tr key={b.id}>
+                  <tr key={b.id} onClick={() => selectBinder(b)}
+                    style={{ cursor: "pointer", background: selBinder?.id === b.id ? "var(--accent-soft, #eef)" : undefined }}>
                     <td><b>{b.binder_name}</b></td>
                     <td>{b.target_name}</td>
                     <td>{b.composite_score ?? "—"}</td>
-                    <td className="small">{(b.selectivity || []).map((s: any) => `${s.kinase}: ${s.best_iptm}`).join("  ·  ")}</td>
                     <td className="small" style={{ color: "var(--muted)" }}>{b.submitted_by}</td>
                   </tr>
                 ))}
@@ -553,6 +603,33 @@ export default function App() {
             </table>
           )}
         </div>
+
+        {selBinder && (
+          <div className="panel" style={{ marginTop: 16 }}>
+            <h3 style={{ marginTop: 0 }}>{selBinder.binder_name}{" "}
+              <span className="small" style={{ color: "var(--muted)" }}>→ {selBinder.target_name}</span></h3>
+            <div className="small" style={{ color: "var(--muted)", marginBottom: 8 }}>
+              Composite score: {selBinder.composite_score ?? "—"} · Submitted by: {selBinder.submitted_by}
+            </div>
+            {selBinder.binder_sequence && (
+              <div className="small" style={{ fontFamily: "var(--seq-font)", wordBreak: "break-all", marginBottom: 12 }}>
+                {selBinder.binder_sequence}</div>
+            )}
+            <div className="row" style={{ marginBottom: 12, alignItems: "center", gap: 10 }}>
+              <span className="small">Kinase family:</span>
+              <select value={libFamily} onChange={(e) => changeFamily(e.target.value)}
+                style={{ width: "auto", minWidth: 160 }}>
+                <option value="ALL">All kinases</option>
+                {availFamilies.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <button className="btn" onClick={() => downloadBinderZip(selBinder)}>Download binder.zip</button>
+            </div>
+            {graphUrl
+              ? <img className="result" src={graphUrl} alt="average ipTM by kinase" />
+              : <div className="empty" style={{ color: "var(--muted)" }}>Loading graph…</div>}
+          </div>
+        )}
+
         <div className="footer-nav"><button className="btn ghost" onClick={() => setStep("Home")}>← Home</button><span /></div>
       </>
     );
@@ -592,7 +669,7 @@ export default function App() {
         ))}
         <hr />
         <button className={"navbtn" + (step === "Library" ? " active" : "")} onClick={openLibrary}>
-          <span className="n">📚</span><span>Shared Library</span>
+          <span className="n">📚</span><span>Binder Library</span>
         </button>
         <hr />
         <div className="status">👤 <b>{userName}</b></div>

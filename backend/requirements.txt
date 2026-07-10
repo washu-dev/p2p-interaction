@@ -11,8 +11,11 @@ PyJWT[crypto]>=2.8
 itsdangerous>=2.1
 httpx>=0.27
 
-# shared results library (RDS Postgres in production)
+# binder library (RDS Postgres in production)
 psycopg[binary]>=3.1
+
+# server-side selectivity graphs for the binder library
+matplotlib>=3.7
 
 # fetch DB_PASSWORD from AWS Secrets Manager at container startup
 boto3>=1.34

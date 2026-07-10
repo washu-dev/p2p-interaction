@@ -307,7 +307,7 @@ class RemoteSlurmRunner:
                 except Exception:  # noqa: BLE001 — logs are best-effort
                     pass
         if any(s["key"] == "profile" and s["status"] == "COMPLETED" for s in job["stages"]):
-            # result.png + the machine-readable results for the shared library.
+            # result.png + the machine-readable results for the binder library.
             for name in ("result.png", "selectivity.json", "design_result.json"):
                 remote = posixpath.join(rjob, name)
                 if not (job_dir / name).exists() and self.ssh.exists(remote):

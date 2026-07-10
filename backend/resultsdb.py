@@ -1,4 +1,4 @@
-"""Shared, opt-in results library: binder + per-kinase selectivity metrics.
+"""Binder library: opt-in store of binder + per-kinase selectivity metrics.
 
 Backed by RDS Postgres in production (DB_HOST set) and by a local SQLite file in
 dev (DB_HOST unset), behind one small portable API. Only runs are stored that
@@ -256,5 +256,77 @@ def list_results(kinase: str | None = None, target: str | None = None,
             b["design_metrics"] = json.loads(b.get("design_metrics") or "{}")
             b["selectivity"] = sorted(sel_by_binder.get(b["id"], []), key=lambda x: x["kinase"])
         return binders
+    finally:
+        conn.close()
+
+
+def get_binder(binder_id: str) -> dict | None:
+    """One binder (with parsed design_metrics + its selectivity rows), or None."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur, "SELECT * FROM public_binders WHERE id = ?", (binder_id,))
+        rows = _rows(cur)
+        if not rows:
+            return None
+        b = rows[0]
+        b["design_metrics"] = json.loads(b.get("design_metrics") or "{}")
+        _exec(cur, "SELECT * FROM public_selectivity WHERE binder_id = ?", (binder_id,))
+        b["selectivity"] = sorted(
+            ({"kinase": s["kinase"], "best_iptm": s["best_iptm"], "avg_iptm": s["avg_iptm"]}
+             for s in _rows(cur)),
+            key=lambda x: x["kinase"],
+        )
+        return b
+    finally:
+        conn.close()
+
+
+def get_selectivity(binder_id: str) -> list[dict]:
+    """Per-kinase selectivity rows for a binder: [{kinase, best_iptm, avg_iptm}]."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur, "SELECT kinase, best_iptm, avg_iptm FROM public_selectivity WHERE binder_id = ?",
+              (binder_id,))
+        return _rows(cur)
+    finally:
+        conn.close()
+
+
+def get_artifact(binder_id: str, kind: str) -> dict | None:
+    """A stored file/graph for a binder: {filename, content_type, content bytes}, or None."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur,
+              "SELECT filename, content_type, content FROM public_binder_artifacts "
+              "WHERE binder_id = ? AND kind = ? LIMIT 1",
+              (binder_id, kind))
+        rows = _rows(cur)
+        if not rows:
+            return None
+        a = rows[0]
+        if a.get("content") is not None:
+            a["content"] = bytes(a["content"])  # normalize BYTEA memoryview / BLOB
+        return a
+    finally:
+        conn.close()
+
+
+def put_artifact(binder_id: str, kind: str, filename: str, content_type: str,
+                 content: bytes) -> None:
+    """Upsert one artifact for (binder_id, kind). Used to cache generated graphs."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        _exec(cur, "DELETE FROM public_binder_artifacts WHERE binder_id = ? AND kind = ?",
+              (binder_id, kind))
+        _exec(cur,
+              "INSERT INTO public_binder_artifacts "
+              "(id, binder_id, kind, filename, content_type, content, created_at) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?)",
+              (uuid.uuid4().hex, binder_id, kind, filename, content_type, content, time.time()))
+        conn.commit()
     finally:
         conn.close()
