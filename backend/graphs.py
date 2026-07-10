@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import io
 
+import kinase_families
 import matplotlib
 
-matplotlib.use("Agg")  # headless: no display, must be set before pyplot import
+matplotlib.use("Agg")  # headless: no display; must run before pyplot is imported
 import matplotlib.pyplot as plt  # noqa: E402
-
-import kinase_families  # noqa: E402
 
 
 def avg_iptm_png(target_name: str, rows: list[dict], family: str | None = None) -> bytes:
