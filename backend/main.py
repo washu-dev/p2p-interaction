@@ -299,6 +299,12 @@ def bundle(jid: str, user: dict = Depends(require_user)):
             z.write(fasta, "binder.fasta")
         elif design.get("binder_sequence"):
             z.writestr("binder.fasta", f">{design.get('binder_name', 'binder')}\n{design['binder_sequence']}\n")
+        target_pdb = d / "target.pdb"
+        if target_pdb.exists():
+            z.write(target_pdb, "target.pdb")
+        target_fasta = d / "target.fasta"
+        if target_fasta.exists():
+            z.write(target_fasta, "target.fasta")
         png = d / "result.png"
         if png.exists():
             z.write(png, "iptm_plot.png")

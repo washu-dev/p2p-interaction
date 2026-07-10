@@ -512,7 +512,7 @@ export default function App() {
               <div style={{ marginTop: 10 }}><a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a></div></div>
             <div className="card"><h4>run_logs.txt</h4><div className="small">Per-stage cluster logs.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadLogs(job.id)}>Download logs</button></div></div>
-            <div className="card"><h4>binder.zip</h4><div className="small">Binder PDB &amp; sequence, plot, logs, and summary.</div>
+            <div className="card"><h4>binder.zip</h4><div className="small">Binder &amp; target PDB + sequence, plot, logs, and summary.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadBundle(job)}>Download binder.zip</button></div></div>
           </div>
           <img className="result" style={{ marginTop: 18 }} src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="result" />
