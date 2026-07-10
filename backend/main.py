@@ -369,6 +369,85 @@ def logs(jid: str, user: dict = Depends(require_user)):
     return {"logs": text[-40000:] or "(no logs yet)"}
 
 
+def _run_summary(job: dict, design: dict) -> str:
+    s = job.get("settings", {})
+    lines = [
+        "BindCraft Selective Binder Platform — Run Summary",
+        "=" * 50, "",
+        f"Run name:        {job.get('name', '')}",
+        f"Target:          {job.get('target_name', '')} ({job.get('input_type', '')})",
+        f"Status:          {job.get('status', '')}",
+        f"Binder name:     {s.get('binder_name', '')}",
+        f"Chains:          {s.get('chains', '')}",
+        f"Hotspots:        {s.get('target_hotspot_residues') or '(none)'}",
+        f"Binder length:   {s.get('length_min')}-{s.get('length_max')}",
+        f"Final designs:   {s.get('number_of_final_designs')}",
+        f"Filters preset:  {s.get('filters_preset', '')}",
+        f"Advanced preset: {s.get('advanced_preset', '')}",
+        f"Kinase panel:    {', '.join(s.get('targets') or [])}",
+        "",
+        f"Stages:          {'  '.join(st['key'] + ':' + st['status'] for st in job.get('stages', []))}",
+    ]
+    if design:
+        lines += [
+            "", "Top binder", "-" * 50,
+            f"Name:            {design.get('binder_name', '')}",
+            f"Composite score: {design.get('composite_score', '')}",
+            f"Sequence:        {design.get('binder_sequence', '')}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/api/jobs/{jid}/bundle.zip")
+def bundle(jid: str, user: dict = Depends(require_user)):
+    """Zip the deliverables: binder PDB + sequence, ipTM plot, logs, summary."""
+    job = db.get_job(jid)
+    d = job_dir(jid)
+    if not job or not d.exists():
+        raise HTTPException(404, "job not found")
+
+    design = {}
+    dr = d / "design_result.json"
+    if dr.exists():
+        try:
+            design = json.loads(dr.read_text())
+        except json.JSONDecodeError:
+            design = {}
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        pdb = d / "top_binder.pdb"
+        if pdb.exists():
+            z.write(pdb, "binder.pdb")
+        fasta = d / "top_binder.fasta"
+        if fasta.exists():
+            z.write(fasta, "binder.fasta")
+        elif design.get("binder_sequence"):
+            z.writestr("binder.fasta", f">{design.get('binder_name', 'binder')}\n{design['binder_sequence']}\n")
+        target_pdb = d / "target.pdb"
+        if target_pdb.exists():
+            z.write(target_pdb, "target.pdb")
+        target_fasta = d / "target.fasta"
+        if target_fasta.exists():
+            z.write(target_fasta, "target.fasta")
+        png = d / "result.png"
+        if png.exists():
+            z.write(png, "iptm_plot.png")
+        logs_text = ""
+        for f in sorted(d.glob("*.log")):
+            logs_text += f"===== {f.name} =====\n{f.read_text(errors='replace')}\n"
+        z.writestr("run_logs.txt", logs_text or "(no logs)")
+        z.writestr("summary.txt", _run_summary(job, design))
+
+    buf.seek(0)
+    safe = "".join(c for c in (job.get("target_name") or jid) if c.isalnum() or c in "-_") or jid
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="binder_{safe}.zip"'},
+    )
+
+
 @app.post("/api/jobs/{jid}/cancel")
 def cancel(jid: str, user: dict = Depends(require_user)):
     job = db.get_job(jid)
