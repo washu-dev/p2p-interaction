@@ -4,6 +4,7 @@
   --card:#ffffff; --chipbg:#eef2ff; --chipfg:#4338ca;
   --green:#16a34a; --greenbg:#dcfce7; --red:#dc2626; --redbg:#fee2e2;
   --amber:#b45309; --amberbg:#fef3c7;
+  --seq-font:'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
 }
 * { box-sizing:border-box; }
 body {
@@ -86,7 +87,7 @@ input:focus,select:focus,textarea:focus { outline:2px solid #c7d2fe; border-colo
 .note.ok { background:var(--greenbg); color:#166534; border:1px solid #bbf7d0; }
 .note.err { background:var(--redbg); color:#991b1b; border:1px solid #fecaca; }
 pre.code { background:#0b1020; color:#d6deff; border-radius:12px; padding:14px; font-size:12.5px;
-  overflow:auto; max-height:300px; white-space:pre-wrap; }
+  font-family:var(--seq-font); overflow:auto; max-height:300px; white-space:pre-wrap; }
 table { width:100%; border-collapse:collapse; font-size:13.5px; }
 th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
 th { color:var(--muted); font-weight:600; }

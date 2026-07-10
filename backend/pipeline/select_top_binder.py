@@ -9,7 +9,7 @@ RMSD / sequence / clash metrics, picks the highest-scoring design, locates its
 <Design>.pdb (preferring an Accepted/ dir), and copies it to <dest.pdb>.
 
 Also writes <dest_dir>/design_result.json (binder name, sequence, composite
-score, and key metrics) for the shared results library. Pure standard library;
+score, and key metrics) for the binder library. Pure standard library;
 falls back to the newest Accepted/*.pdb if the stats CSV is missing/unusable.
 """
 import csv

@@ -120,7 +120,7 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
 # ---------------------------------------------------------------------------
-# Shared results library — opt-in public store of binder + selectivity results.
+# Binder library — opt-in public store of binder + selectivity results.
 # Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
 # (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)
 #
