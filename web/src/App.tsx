@@ -191,18 +191,20 @@ export default function App() {
       download(`run_logs_${id}.txt`, (await api<any>(`/jobs/${id}/logs`, token)).logs);
     } catch (e: any) { alert(e.message); }
   }
-  function downloadSummary(j: Job) {
-    const s = j.settings;
-    download(`summary_${j.id}.txt`, [
-      "BindCraft Selective Binder Platform — Run Summary", "=".repeat(50), "",
-      `Run name:        ${j.name}`, `Target:          ${j.target_name} (${j.input_type})`,
-      `Status:          ${j.status}`, `Binder name:     ${s.binder_name}`, `Chains:          ${s.chains}`,
-      `Hotspots:        ${s.target_hotspot_residues || "(none)"}`,
-      `Binder length:   ${s.length_min}-${s.length_max}`, `Final designs:   ${s.number_of_final_designs}`,
-      `Filters preset:  ${s.filters_preset}`, `Advanced preset: ${s.advanced_preset}`,
-      `Kinase panel:    ${(s.targets || []).join(", ")}`, "",
-      `Stages:          ${(j.stages || []).map((x) => x.key + ":" + x.status).join("  ")}`,
-    ].join("\n"));
+  async function downloadBundle(j: Job) {
+    try {
+      const token = await getToken();
+      const r = await fetch(apiUrl(`/jobs/${j.id}/bundle.zip`), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as any).detail || r.statusText);
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `binder_${j.target_name}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) { alert(e.message); }
   }
 
   function reset() {
@@ -503,15 +505,15 @@ export default function App() {
     );
     return (
       <>
-        <Header title="Download Results" desc="Export the selectivity plot, logs, and a run summary." />
+        <Header title="Download Results" desc="Export the selectivity plot, logs, and a binder bundle (.zip)." />
         <div className="panel">
           <div className="cards">
             <div className="card"><h4>iptm_plot.png</h4><div className="small">The ipTM-vs-kinase selectivity plot.</div>
               <div style={{ marginTop: 10 }}><a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a></div></div>
             <div className="card"><h4>run_logs.txt</h4><div className="small">Per-stage cluster logs.</div>
               <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadLogs(job.id)}>Download logs</button></div></div>
-            <div className="card"><h4>summary.txt</h4><div className="small">Run configuration and target panel.</div>
-              <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadSummary(job)}>Download summary</button></div></div>
+            <div className="card"><h4>binder.zip</h4><div className="small">Binder &amp; target PDB + sequence, plot, logs, and summary.</div>
+              <div style={{ marginTop: 10 }}><button className="btn" onClick={() => downloadBundle(job)}>Download binder.zip</button></div></div>
           </div>
           <img className="result" style={{ marginTop: 18 }} src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="result" />
         </div>
