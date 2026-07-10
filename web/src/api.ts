@@ -43,6 +43,30 @@ export interface AppConfig {
   kinases: string[];
 }
 
+export interface UniprotCandidate {
+  accession: string;
+  entry_id: string;
+  reviewed: boolean;
+  protein_name: string;
+  gene_names: string;
+  organism: string;
+  length: string;
+  domains: string;
+}
+
+export interface LibraryTarget {
+  id: string;
+  name: string;
+  input_type: "fasta" | "pdb";
+  source: "uniprot" | "upload";
+  accession: string;
+  organism: string;
+  file_name: string;
+  sequence_preview: string;
+  submitted_by: string;
+  created_at: number;
+}
+
 export async function api<T = any>(
   path: string,
   token: string,

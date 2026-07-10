@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest, API_SCOPE } from "./auth/msalConfig";
-import { api, apiUrl, type AppConfig, type Job } from "./api";
+import { api, apiUrl, type AppConfig, type Job, type UniprotCandidate, type LibraryTarget } from "./api";
 
 const STEPS = [
   "Home", "Upload", "Structure Prediction", "Binder Design",
@@ -38,6 +38,7 @@ export default function App() {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
 
+  const [mode, setMode] = useState<"simple" | "advanced">("simple");
   const [step, setStep] = useState("Home");
   const [cfg, setCfg] = useState<AppConfig>({ mode: "…", filters: [], advanced: [], kinases: [] });
   const [file, setFile] = useState<File | null>(null);
@@ -60,7 +61,24 @@ export default function App() {
   const [libFamily, setLibFamily] = useState("ALL");
   const [graphUrl, setGraphUrl] = useState<string | null>(null);
 
+  // ---- kinase search / shared target library (Upload step) ----
+  const [uploadTab, setUploadTab] = useState<"search" | "library" | "file">("search");
+  const [kinaseQuery, setKinaseQuery] = useState("");
+  const [organism, setOrganism] = useState("Homo sapiens");
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState("");
+  const [candidates, setCandidates] = useState<UniprotCandidate[]>([]);
+  const [fetchingAcc, setFetchingAcc] = useState<string | null>(null);
+  const [targetLibrary, setTargetLibrary] = useState<LibraryTarget[]>([]);
+  const [targetLibQ, setTargetLibQ] = useState("");
+  const [libLoading, setLibLoading] = useState(false);
+  const [usingTargetId, setUsingTargetId] = useState<string | null>(null);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+  // Which candidate/library entry is the currently-selected target (for highlighting + the organism label).
+  const [targetMeta, setTargetMeta] = useState<{ accession?: string; organism?: string } | null>(null);
+
   const fileInput = useRef<HTMLInputElement>(null);
+  const pdbInput = useRef<HTMLInputElement>(null);
 
   const account = accounts[0] ?? null;
   const userName = account?.name || account?.username || "signed in";
@@ -182,6 +200,83 @@ export default function App() {
     } else { setFileText(null); setValidation({ ok: true, msg: "PDB structure file accepted." }); }
   }
 
+  // ---- kinase search (UniProt) ----
+  // orgOverride lets the Simple search run with no organism filter (shows every
+  // species/origin as its own row) without disturbing the Advanced tab's organism field.
+  async function searchUniprot(orgOverride?: string, size = 5) {
+    if (!kinaseQuery.trim()) return;
+    setSearching(true); setSearchErr(""); setCandidates([]);
+    try {
+      const token = await getToken();
+      const org = orgOverride === undefined ? organism.trim() : orgOverride;
+      const r = await api<{ candidates: UniprotCandidate[] }>(
+        `/uniprot/search?q=${encodeURIComponent(kinaseQuery.trim())}&organism=${encodeURIComponent(org)}&size=${size}`,
+        token,
+      );
+      setCandidates(r.candidates || []);
+      if ((r.candidates || []).length === 0) setSearchErr(`No UniProt results for "${kinaseQuery}".`);
+    } catch (e: any) { setSearchErr(e.message || "search failed"); }
+    finally { setSearching(false); }
+  }
+
+  async function useUniprotCandidate(c: UniprotCandidate) {
+    setFetchingAcc(c.accession); setUploadNote(null);
+    try {
+      const token = await getToken();
+      const name = kinaseQuery.trim() || c.gene_names.split(/\s+/)[0] || c.accession;
+      const r = await api<{ target: LibraryTarget; fasta_text: string }>("/targets/fetch", token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accession: c.accession, name, organism: c.organism }),
+      });
+      onFile(new File([r.fasta_text], `${r.target.name}.fasta`, { type: "text/plain" }));
+      setTargetMeta({ accession: c.accession, organism: c.organism });
+      setUploadNote(`Downloaded ${r.target.name}.fasta (${c.accession}) and saved it to the shared library.`);
+    } catch (e: any) { setSearchErr(e.message || "download failed"); }
+    finally { setFetchingAcc(null); }
+  }
+
+  // ---- shared target library (browse & reuse) ----
+  async function loadTargetLibrary() {
+    setLibLoading(true);
+    try {
+      const token = await getToken();
+      const r = await api<{ targets: LibraryTarget[] }>(`/targets?q=${encodeURIComponent(targetLibQ)}`, token);
+      setTargetLibrary(r.targets || []);
+    } catch { /* ignore */ }
+    finally { setLibLoading(false); }
+  }
+
+  async function useLibraryTarget(t: LibraryTarget) {
+    setUsingTargetId(t.id); setUploadNote(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(apiUrl(`/targets/${t.id}/file`), { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
+      const blob = await res.blob();
+      onFile(new File([blob], t.file_name, { type: t.input_type === "fasta" ? "text/plain" : "chemical/x-pdb" }));
+      setTargetMeta({ accession: t.accession, organism: t.organism });
+      setUploadNote(`Using ${t.file_name} from the shared library (added by ${t.submitted_by}).`);
+    } catch (e: any) { setUploadNote(e.message || "failed to load target"); }
+    finally { setUsingTargetId(null); }
+  }
+
+  // ---- direct upload -> also saved to the shared target library ----
+  async function onFileAndShare(f: File | null) {
+    if (!f) return;
+    onFile(f);
+    setUploadNote(null);
+    setTargetMeta(null);
+    try {
+      const token = await getToken();
+      const fd = new FormData();
+      fd.append("file", f);
+      fd.append("name", f.name.replace(/\.[^.]+$/, ""));
+      const r = await api<{ target: LibraryTarget }>("/targets/upload", token, { method: "POST", body: fd });
+      setUploadNote(`Saved ${r.target.file_name} to the shared library.`);
+    } catch (e: any) { setUploadNote(e.message || "could not save to shared library"); }
+  }
+
   async function runPipeline(force: boolean) {
     setRunErr("");
     if (!file) return setRunErr("Upload a target first.");
@@ -251,7 +346,7 @@ export default function App() {
   }
 
   function reset() {
-    setFile(null); setFileText(null); setInputType(null); setValidation(null); setJobId(null);
+    setFile(null); setFileText(null); setInputType(null); setValidation(null); setJobId(null); setTargetMeta(null);
     setSelected(new Set(cfg.kinases));
     setSettings((s) => ({ ...s, binder_name: "", name: "", target_hotspot_residues: "" }));
     setStep("Home");
@@ -314,6 +409,146 @@ export default function App() {
     );
   }
 
+  // ---- Simple mode: one screen — search, run, watch, download ----
+  function changeTarget() {
+    setFile(null); setFileText(null); setInputType(null); setValidation(null);
+    setCandidates([]); setUploadNote(null); setJobId(null); setTargetMeta(null);
+  }
+
+  function pageSimple() {
+    const stages = job?.stages || [];
+    return (
+      <div className="simple-shell">
+        <div className="simple-topbar">
+          <div className="row" style={{ gap: 8 }}><span style={{ fontSize: 22 }}>🧬</span><b>Selective Binder Platform</b></div>
+          <div className="row">
+            <span className="small" style={{ color: "var(--muted)" }}>👤 {userName}</span>
+            <button className="btn ghost" onClick={() => setMode("advanced")}>⚙️ Advanced</button>
+            <button className="btn ghost" onClick={() => instance.logoutRedirect()}>Sign out</button>
+          </div>
+        </div>
+
+        <div className="simple-wrap">
+          <div className="hero" style={{ textAlign: "center" }}>
+            <h1>Find a kinase, then design a binder</h1>
+            <p>Type a kinase name, pick the right species, and click Run — no setup needed.</p>
+          </div>
+
+          {apiError && <div className="note err" style={{ marginBottom: 16 }}>
+            <b>Can't reach the backend.</b> {apiError}
+          </div>}
+
+          <div className="panel">
+            <div className="row" style={{ gap: 10 }}>
+              <input type="text" placeholder="e.g. LATS1, NDR1, PDL1" value={kinaseQuery}
+                onChange={(e) => setKinaseQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && searchUniprot("", 10)}
+                style={{ fontSize: 16, padding: "12px 14px", flex: 1 }} />
+              <button className="btn" disabled={!kinaseQuery.trim() || searching} onClick={() => searchUniprot("", 10)}>
+                {searching ? "Searching…" : "🔍 Search"}
+              </button>
+              <button className="btn run" disabled={!file} onClick={() => runPipeline(false)}>🚀 Run Pipeline</button>
+            </div>
+
+            {searchErr && <div className="note err" style={{ marginTop: 12 }}>{searchErr}</div>}
+
+            {candidates.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div className="small" style={{ color: "var(--muted)", marginBottom: 8 }}>Pick the species/entry you want:</div>
+                <table>
+                  <thead><tr><th>Accession</th><th>Protein</th><th>Organism</th><th /></tr></thead>
+                  <tbody>
+                    {candidates.map((c) => {
+                      const isSelected = targetMeta?.accession === c.accession;
+                      return (
+                        <tr key={c.accession + c.organism}>
+                          <td><b>{c.accession}</b>{c.reviewed && <span className="badge b-COMPLETED" style={{ marginLeft: 6 }}>reviewed</span>}</td>
+                          <td className="small">{c.protein_name}</td>
+                          <td className="small">{c.organism}</td>
+                          <td>
+                            <button className={"btn" + (isSelected ? "" : " ghost")} disabled={fetchingAcc === c.accession}
+                              onClick={() => useUniprotCandidate(c)}>
+                              {fetchingAcc === c.accession ? "Downloading…" : isSelected ? "✓ Selected" : "Use this"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {file && (
+              <div className="note ok" style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <span>✅ Target ready: <b>{file.name.replace(/\.[^.]+$/, "")}</b>
+                  {targetMeta?.organism && <b> ({targetMeta.organism})</b>} ({inputType?.toUpperCase()}) — click <b>Run Pipeline</b> above.</span>
+                <button className="btn ghost" onClick={changeTarget}>Change target</button>
+              </div>
+            )}
+            {uploadNote && <div className="note info" style={{ marginTop: 10 }}>{uploadNote}</div>}
+            {runErr && <div className="note err" style={{ marginTop: 12 }}>{runErr}</div>}
+          </div>
+
+          {job && (
+            <div className="panel">
+              <div className="row" style={{ marginBottom: 10 }}>
+                <span className={"badge b-" + job.status}>{job.status}</span>
+                <span className="small" style={{ color: "var(--muted)" }}>{job.target_name} · {stages.length} stages</span>
+                <span className="spacer" />
+                {(job.status === "PENDING" || job.status === "RUNNING") && <button className="btn ghost" onClick={() => cancelJob(job.id)}>Cancel</button>}
+              </div>
+              <div className="stages">
+                {stages.map((s, i) => (
+                  <div className="stage" key={s.key}>
+                    <div className="col">
+                      <span className={"dot " + s.status} />
+                      {i < stages.length - 1 && <span className={"line" + (s.status === "COMPLETED" ? " done" : "")} />}
+                    </div>
+                    <div className="body"><div className="lbl">{s.label}</div><span className={"badge b-" + s.status}>{s.status}</span></div>
+                  </div>
+                ))}
+              </div>
+              {job.status === "COMPLETED" && (
+                <div style={{ marginTop: 14 }}>
+                  <h3 style={{ color: "var(--ink)" }}>Selectivity result</h3>
+                  <img className="result" src={apiUrl(`/jobs/${job.id}/result.png?t=${job.updated_at}`)} alt="ipTM vs kinase plot" />
+                  <div className="row" style={{ marginTop: 14 }}>
+                    <a className="btn" href={apiUrl(`/jobs/${job.id}/result.png`)} download={`iptm_${job.target_name}.png`}>Download plot</a>
+                    <button className="btn ghost" onClick={() => downloadLogs(job.id)}>Download logs</button>
+                    <button className="btn ghost" onClick={() => downloadBundle(job)}>Download binder.zip</button>
+                  </div>
+                </div>
+              )}
+              {job.status === "FAILED" && <div className="note err" style={{ marginTop: 12 }}>{job.error || "A stage failed."}</div>}
+              {(job.status === "PENDING" || job.status === "RUNNING") && <div className="note info" style={{ marginTop: 12 }}><span className="spinner" /> Running automatically — this updates on its own.</div>}
+            </div>
+          )}
+
+          <div className="row" style={{ justifyContent: "center", marginTop: 6 }}>
+            <button className="btn ghost" onClick={() => setMode("advanced")}>Need more control? Open Advanced settings →</button>
+          </div>
+        </div>
+
+        {cached && (
+          <div className="modal-bg">
+            <div className="modal">
+              <h3>Identical run already exists</h3>
+              <p><b>{cached.name}</b> was already run with this exact target file and settings on
+                {" " + new Date(cached.created_at * 1000).toLocaleString()}. Reuse that result, or run it again?</p>
+              <div className="row" style={{ marginTop: 18 }}>
+                <button className="btn" onClick={() => { setJobId(cached.id); setCached(null); }}>Use existing result</button>
+                <button className="btn ghost" onClick={() => { setCached(null); runPipeline(true); }}>Run again</button>
+                <span className="spacer" />
+                <button className="btn ghost" onClick={() => setCached(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ---- pages ----
   function pageHome() {
     const tiles = [
@@ -347,23 +582,139 @@ export default function App() {
 
   function pageUpload() {
     const ok = !!file && (inputType === "pdb" || (validation?.ok ?? false));
+    const tabs: [typeof uploadTab, string][] = [
+      ["search", "🔍 Search kinase (UniProt)"],
+      ["library", "📚 Shared library"],
+      ["file", "📄 Upload file"],
+    ];
     return (
       <>
-        <Header title="Upload Target" desc="Add the protein target — a structure (.pdb) or a sequence (.fasta)." />
+        <Header title="Choose a Target" desc="Search a kinase by name, reuse a target someone already added, or upload your own FASTA/PDB." />
         <div className="panel">
-          <div className={"drop" + (file ? " has" : "")} onClick={() => fileInput.current?.click()}>
-            {file ? <>📄 <b>{file.name}</b> &nbsp;·&nbsp; click to replace</> : <>Click to choose a <b>.pdb</b> or <b>.fasta</b> file</>}
+          <div className="row" style={{ marginBottom: 16, gap: 6 }}>
+            {tabs.map(([key, label]) => (
+              <button key={key} className={"btn" + (uploadTab === key ? "" : " ghost")}
+                onClick={() => { setUploadTab(key); if (key === "library") loadTargetLibrary(); }}>
+                {label}
+              </button>
+            ))}
           </div>
-          <input ref={fileInput} type="file" accept=".pdb,.ent,.fasta,.fa,.faa,.seq" style={{ display: "none" }}
-            onChange={(e) => onFile(e.target.files?.[0] || null)} />
+
+          {uploadTab === "search" && (
+            <div>
+              <div className="grid2">
+                <div>
+                  <label>Kinase / protein name</label>
+                  <input type="text" value={kinaseQuery} placeholder="e.g. LATS1, NDR1"
+                    onChange={(e) => setKinaseQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && searchUniprot()} />
+                </div>
+                <div>
+                  <label>Organism</label>
+                  <input type="text" value={organism} onChange={(e) => setOrganism(e.target.value)} />
+                </div>
+              </div>
+              <div className="row" style={{ marginTop: 12 }}>
+                <button className="btn" disabled={!kinaseQuery.trim() || searching} onClick={() => searchUniprot()}>
+                  {searching ? "Searching…" : "Search UniProt"}
+                </button>
+                <span className="small" style={{ color: "var(--muted)" }}>Looks up UniProtKB and prefers reviewed (Swiss-Prot) entries.</span>
+              </div>
+              {searchErr && <div className="note err" style={{ marginTop: 12 }}>{searchErr}</div>}
+              {candidates.length > 0 && (
+                <table style={{ marginTop: 14 }}>
+                  <thead><tr><th>Accession</th><th>Protein</th><th>Genes</th><th>Organism</th><th>Length</th><th /></tr></thead>
+                  <tbody>
+                    {candidates.map((c) => {
+                      const isSelected = targetMeta?.accession === c.accession;
+                      return (
+                        <tr key={c.accession}>
+                          <td><b>{c.accession}</b>{c.reviewed && <span className="badge b-COMPLETED" style={{ marginLeft: 6 }}>reviewed</span>}</td>
+                          <td className="small">{c.protein_name}</td>
+                          <td className="small">{c.gene_names}</td>
+                          <td className="small">{c.organism}</td>
+                          <td className="small">{c.length} aa</td>
+                          <td>
+                            <button className={"btn" + (isSelected ? "" : " ghost")} disabled={fetchingAcc === c.accession}
+                              onClick={() => useUniprotCandidate(c)}>
+                              {fetchingAcc === c.accession ? "Downloading…" : isSelected ? "✓ Selected" : "Download"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {uploadTab === "library" && (
+            <div>
+              <div className="row" style={{ marginBottom: 12 }}>
+                <input type="text" placeholder="Filter by name or accession…" value={targetLibQ}
+                  onChange={(e) => setTargetLibQ(e.target.value)} style={{ maxWidth: 280 }}
+                  onKeyDown={(e) => e.key === "Enter" && loadTargetLibrary()} />
+                <button className="btn ghost" onClick={loadTargetLibrary}>{libLoading ? "Loading…" : "Refresh"}</button>
+              </div>
+              {targetLibrary.length === 0 ? (
+                <div className="empty" style={{ color: "var(--muted)" }}>
+                  {libLoading ? "Loading…" : "No shared targets yet — search a kinase or upload a file to add one."}
+                </div>
+              ) : (
+                <table>
+                  <thead><tr><th>Name</th><th>Type</th><th>Source</th><th>Added by</th><th /></tr></thead>
+                  <tbody>
+                    {targetLibrary.map((t) => (
+                      <tr key={t.id}>
+                        <td><b>{t.name}</b>{t.accession && <span className="small" style={{ color: "var(--muted)" }}> · {t.accession}</span>}</td>
+                        <td><span className="badge b-SKIPPED">{t.input_type.toUpperCase()}</span></td>
+                        <td className="small">{t.source === "uniprot" ? "UniProt" : "Upload"}</td>
+                        <td className="small" style={{ color: "var(--muted)" }}>{t.submitted_by}</td>
+                        <td>
+                          <button className="btn ghost" disabled={usingTargetId === t.id} onClick={() => useLibraryTarget(t)}>
+                            {usingTargetId === t.id ? "Loading…" : "Use this"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {uploadTab === "file" && (
+            <div className="grid2">
+              <div>
+                <label>Upload a FASTA sequence</label>
+                <div className={"drop" + (file && inputType === "fasta" ? " has" : "")} onClick={() => fileInput.current?.click()}>
+                  {file && inputType === "fasta" ? <>📄 <b>{file.name}</b> &nbsp;·&nbsp; click to replace</> : <>Click to choose a <b>.fasta</b> file</>}
+                </div>
+                <input ref={fileInput} type="file" accept=".fasta,.fa,.faa,.seq" style={{ display: "none" }}
+                  onChange={(e) => onFileAndShare(e.target.files?.[0] || null)} />
+              </div>
+              <div>
+                <label>Upload a PDB structure</label>
+                <div className={"drop" + (file && inputType === "pdb" ? " has" : "")} onClick={() => pdbInput.current?.click()}>
+                  {file && inputType === "pdb" ? <>📄 <b>{file.name}</b> &nbsp;·&nbsp; click to replace</> : <>Click to choose a <b>.pdb</b> file</>}
+                </div>
+                <input ref={pdbInput} type="file" accept=".pdb,.ent" style={{ display: "none" }}
+                  onChange={(e) => onFileAndShare(e.target.files?.[0] || null)} />
+              </div>
+            </div>
+          )}
+
+          {uploadNote && <div className="note ok" style={{ marginTop: 14 }}>{uploadNote}</div>}
           {file && (
             <div style={{ marginTop: 14 }}>
-              {validation && <div className={"note " + (validation.ok ? "ok" : "err")}>{validation.msg}</div>}
+              <div className="note info">Selected: <b>{file.name}</b>{targetMeta?.organism && <> (<b>{targetMeta.organism}</b>)</>} ({inputType?.toUpperCase()})</div>
+              {validation && <div className={"note " + (validation.ok ? "ok" : "err")} style={{ marginTop: 8 }}>{validation.msg}</div>}
               {fileText && <pre className="code">{fileText.slice(0, 1200)}{fileText.length > 1200 ? "\n… [preview truncated]" : ""}</pre>}
             </div>
           )}
-          <div className="note info" style={{ marginTop: 14 }}>A <b>FASTA</b> target is folded to a PDB first (adds a
-            structure-prediction stage). A <b>PDB</b> target skips that stage.</div>
+          <div className="note info" style={{ marginTop: 14 }}>A <b>FASTA</b> target is folded to a PDB first via AlphaFold/ColabFold (adds a
+            structure-prediction stage). A <b>PDB</b> target skips that stage and goes straight to BindCraft design.</div>
         </div>
         <Footer prev="Home" next="Structure Prediction" ok={ok} />
       </>
@@ -642,12 +993,18 @@ export default function App() {
     "Visualization": pageViz, "Download": pageDownload, "Library": pageLibrary,
   };
 
+  if (mode === "simple") return pageSimple();
+
   return (
     <div className="layout">
       <aside>
         <h2>🧬 Selective Binder</h2>
         <div className="tag">BindCraft design workspace</div>
         <span className="mode">mode: {cfg.mode}</span>
+        <hr />
+        <button className="navbtn" onClick={() => setMode("simple")}>
+          <span className="n">🔎</span><span>Simple search</span>
+        </button>
         <hr />
         {STEPS.map((s, i) => (
           <button key={s} className={"navbtn" + (s === step ? " active" : "") + (i < idx ? " done" : "")} onClick={() => setStep(s)}>

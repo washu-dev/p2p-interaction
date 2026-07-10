@@ -14,8 +14,10 @@ from pathlib import Path
 import config
 import db
 import kinase_families
+import targetlibrary
+import uniprot
 from auth import require_user
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +37,7 @@ app.add_middleware(
 )
 runner = get_runner()
 db.init_db()
+targetlibrary.init_library_db()
 try:
     import resultsdb
     resultsdb.init_results_db()
@@ -129,6 +132,85 @@ def get_config():
 @app.get("/api/me")
 def me(user: dict = Depends(require_user)):
     return user
+
+
+# ---------------------------------------------------------------------------
+# Kinase search (UniProt) + shared target library
+# ---------------------------------------------------------------------------
+@app.get("/api/uniprot/search")
+def uniprot_search(q: str, organism: str = "Homo sapiens", size: int = 5, user: dict = Depends(require_user)):
+    """Search UniProtKB by gene/protein name (e.g. LATS1, NDR1).
+
+    An empty `organism` searches across all species — used by the Simple
+    search so users can pick the right origin themselves.
+    """
+    if not q.strip():
+        raise HTTPException(400, "q is required")
+    try:
+        return {"candidates": uniprot.search(q.strip(), organism.strip(), size=max(1, min(size, 20)))}
+    except uniprot.UniprotError as e:
+        raise HTTPException(502, str(e)) from None
+
+
+@app.post("/api/targets/fetch")
+def targets_fetch(payload: dict = Body(...), user: dict = Depends(require_user)):
+    """Download the FASTA for a chosen UniProt accession and save it to the
+    shared target library so the next person can reuse it without re-fetching."""
+    accession = (payload.get("accession") or "").strip()
+    name = (payload.get("name") or accession).strip()
+    organism = (payload.get("organism") or "").strip()
+    if not accession:
+        raise HTTPException(400, "accession is required")
+    try:
+        fasta_text = uniprot.fetch_fasta(accession)
+    except uniprot.UniprotError as e:
+        raise HTTPException(502, str(e)) from None
+    row = targetlibrary.add_target(
+        name=name, input_type="fasta", data=fasta_text.encode("utf-8"),
+        source="uniprot", submitted_by=user.get("preferred_username") or user.get("sub") or "unknown",
+        accession=accession, organism=organism,
+    )
+    return {"target": row, "fasta_text": fasta_text}
+
+
+@app.post("/api/targets/upload")
+async def targets_upload(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    user: dict = Depends(require_user),
+):
+    """Directly upload a FASTA or PDB target into the shared library."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext in FASTA_EXTS:
+        input_type = "fasta"
+    elif ext in PDB_EXTS:
+        input_type = "pdb"
+    else:
+        raise HTTPException(400, f"unsupported file type '{ext}'; upload .fasta or .pdb")
+    data = await file.read()
+    row = targetlibrary.add_target(
+        name=(name or Path(file.filename).stem).strip(), input_type=input_type, data=data,
+        source="upload", submitted_by=user.get("preferred_username") or user.get("sub") or "unknown",
+    )
+    return {"target": row}
+
+
+@app.get("/api/targets")
+def targets_list(q: str | None = None, input_type: str | None = None, user: dict = Depends(require_user)):
+    """Browse the shared target library (fetched-from-UniProt + directly-uploaded files)."""
+    return {"targets": targetlibrary.list_targets(q=q, input_type=input_type)}
+
+
+@app.get("/api/targets/{tid}/file")
+def targets_file(tid: str, user: dict = Depends(require_user)):
+    row = targetlibrary.get_target(tid)
+    if not row:
+        raise HTTPException(404, "target not found")
+    data = targetlibrary.read_file(tid, row["input_type"])
+    media = "text/plain" if row["input_type"] == "fasta" else "chemical/x-pdb"
+    return Response(content=data, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="{row["file_name"]}"'
+    })
 
 
 @app.post("/api/jobs")
