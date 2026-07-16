@@ -132,6 +132,7 @@ class MockRunner:
                     "binder_sequence": "MKQLEDKVEELLSKNYHLENEVARLKKLVGER",
                     "composite_score": 73.2,
                     "design_metrics": {"Average_i_pTM": 0.84, "Average_pLDDT": 0.93},
+                    "accepted_designs": 6,
                 }))
                 log.write("[mock] design done -> top_binder.pdb + design_result.json\n")
             elif key == "profile":

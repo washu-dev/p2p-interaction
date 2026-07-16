@@ -8,6 +8,7 @@ the current code maps to it. Read the numbered docs in order:
 - [03-backend-ssh-runner.md](03-backend-ssh-runner.md) — the Paramiko remote runner
 - [04-frontend-sso.md](04-frontend-sso.md) — React/MSAL SPA
 - [05-deployment-aws.md](05-deployment-aws.md) — hosting on AWS
+- [07-simple-mode-ux-testing.md](07-simple-mode-ux-testing.md) — manual new-user testing checklist for Simple mode
 - [TODO.md](TODO.md) — consolidated checklist
 
 ## The two main ideas
