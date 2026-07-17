@@ -120,6 +120,20 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
 # ---------------------------------------------------------------------------
+# Email notifications on job completion/failure — AWS SES.
+# Runs (fold+design+profile chained) can take hours; most users won't sit and
+# watch. Blank SES_SENDER disables real sending — notify.py logs instead, so
+# mock-mode dev needs no SES setup.
+# ---------------------------------------------------------------------------
+SES_REGION = os.environ.get("BINDGUI_SES_REGION", "us-east-1")
+SES_SENDER = os.environ.get("BINDGUI_SES_SENDER", "")  # verified SES sender identity/domain
+
+# How often the backend checks unfinished jobs on its own, independent of any
+# browser polling — otherwise a completed/failed job with no open browser
+# tab never triggers its email.
+BACKGROUND_POLL_SEC = int(os.environ.get("BINDGUI_BACKGROUND_POLL_SEC", "20"))
+
+# ---------------------------------------------------------------------------
 # Binder library — opt-in public store of binder + selectivity results.
 # Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
 # (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)

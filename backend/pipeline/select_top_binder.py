@@ -133,6 +133,8 @@ def from_csv(out_dir):
         "binder_sequence": (top_row.get("Sequence") or "").strip(),
         "composite_score": top_score,
         "design_metrics": design_metrics(top_row),
+        # final_design_stats.csv has one row per BindCraft-accepted design.
+        "accepted_designs": len(scored),
     }
     return pdb, design
 
@@ -160,6 +162,10 @@ def newest_accepted(out_dir):
     return max(cands, key=os.path.getmtime) if cands else None
 
 
+def count_accepted(out_dir):
+    return len(glob.glob(os.path.join(out_dir, "**", "Accepted", "*.pdb"), recursive=True))
+
+
 def main():
     if len(sys.argv) != 3:
         print(__doc__)
@@ -171,7 +177,7 @@ def main():
         top, design = result
     else:
         print("Composite scoring unavailable - falling back to newest Accepted/*.pdb")
-        top, design = newest_accepted(out_dir), None
+        top, design = newest_accepted(out_dir), {"accepted_designs": count_accepted(out_dir)}
 
     if not top or not os.path.exists(top):
         print(f"ERROR: no binder PDB found under {out_dir}", file=sys.stderr)

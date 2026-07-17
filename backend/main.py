@@ -3,6 +3,7 @@
 Run from gui/:
     uvicorn main:app --reload --app-dir backend --port 8000
 """
+import asyncio
 import hashlib
 import io
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 import config
 import db
 import kinase_families
+import notify
 import targetlibrary
 import uniprot
 from auth import require_user
@@ -70,6 +72,8 @@ def refresh(job):
             print(f"[poll] {job['id']} poll failed, leaving as-is: {e}")
     if job and job["status"] == "COMPLETED":
         _maybe_publish(job)
+    if job and job["status"] in ("COMPLETED", "FAILED"):
+        _maybe_notify(job)
     return job
 
 
@@ -89,6 +93,44 @@ def _maybe_publish(job):
         flag.write_text("1")
     except Exception as e:  # noqa: BLE001 — never let publishing break polling
         print(f"[results-library] publish failed for {job['id']}: {e}")
+
+
+def _maybe_notify(job):
+    """Email the submitter once when a run reaches COMPLETED/FAILED (idempotent)."""
+    d = job_dir(job["id"])
+    flag = d / "notified.flag"
+    if flag.exists():
+        return
+    to = (job.get("settings") or {}).get("submitted_by") or ""
+    if "@" not in to:
+        return
+    try:
+        if job["status"] == "COMPLETED":
+            notify.notify_completed(job, d, to)
+        else:
+            notify.notify_failed(job, to)
+        flag.write_text("1")
+    except Exception as e:  # noqa: BLE001 — a broken mailer must never break job polling
+        print(f"[notify] failed for {job['id']}: {e}")
+
+
+async def _background_poll_loop():
+    """Refresh unfinished jobs on a timer, independent of any browser polling —
+    otherwise a job that finishes with no open browser tab never triggers its
+    completion/failure email."""
+    while True:
+        try:
+            for j in db.list_jobs():
+                if j["status"] in ("PENDING", "RUNNING"):
+                    refresh(j)
+        except Exception as e:  # noqa: BLE001 — one bad sweep must not kill the loop
+            print(f"[poll-loop] sweep failed: {e}")
+        await asyncio.sleep(config.BACKGROUND_POLL_SEC)
+
+
+@app.on_event("startup")
+async def _start_background_poller():
+    asyncio.create_task(_background_poll_loop())
 
 
 @app.get("/api/health")
