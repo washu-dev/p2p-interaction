@@ -22,7 +22,7 @@ env:
   ECR_REGISTRY:     730335203321.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY:   minibinders-repo
   ECS_CLUSTER:      minibinders-cluster
-  ECS_SERVICE:      minibinders
+  ECS_SERVICE:      minibinders-washu
   TASK_DEFINITION:  minibinders
   CONTAINER_NAME:   minibinders
 
