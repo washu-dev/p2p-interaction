@@ -110,13 +110,16 @@ AUTH_ENABLED = os.environ.get("BINDGUI_AUTH_ENABLED", "false").lower() == "true"
 CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").split(",") if o.strip()]
 
 # ---------------------------------------------------------------------------
-# Email notifications on job completion/failure — AWS SES.
+# Email notifications on job completion/failure — SendGrid.
 # Runs (fold+design+profile chained) can take hours; most users won't sit and
-# watch. Blank SES_SENDER disables real sending — notify.py logs instead, so
-# mock-mode dev needs no SES setup.
+# watch. Blank SENDGRID_API_KEY/EMAIL_SENDER disables real sending —
+# notify.py logs instead, so mock-mode dev needs no SendGrid setup.
 # ---------------------------------------------------------------------------
-SES_REGION = os.environ.get("BINDGUI_SES_REGION", "us-east-1")
-SES_SENDER = os.environ.get("BINDGUI_SES_SENDER", "")  # verified SES sender identity/domain
+SENDGRID_API_KEY = os.environ.get("BINDGUI_SENDGRID_API_KEY", "")
+EMAIL_SENDER = os.environ.get("BINDGUI_EMAIL_SENDER", "")  # verified SendGrid sender identity
+# Link back to the SPA, included in notification emails (e.g. the CloudFront
+# URL). Not auth-related — just where a user should click to see their run.
+APP_URL = os.environ.get("BINDGUI_APP_URL", "").rstrip("/")
 
 # How often the backend checks unfinished jobs on its own, independent of any
 # browser polling — otherwise a completed/failed job with no open browser
