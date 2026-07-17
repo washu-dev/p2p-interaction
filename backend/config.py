@@ -95,29 +95,19 @@ REMOTE_DIR = os.environ.get(
 REMOTE_PIPELINE_DIR = REMOTE_DIR + "/pipeline"
 
 # ---------------------------------------------------------------------------
-# Web user auth — WashU SSO / Microsoft Entra ID (OIDC), SERVER-SIDE (BFF).
-# FastAPI runs the authorization-code flow with Entra and issues a session
-# cookie; the browser never talks to Entra and never handles tokens.
+# Web user auth — WashU SSO / Microsoft Entra ID, SPA + bearer token.
+# The React SPA signs in with MSAL.js and sends `Authorization: Bearer <token>`;
+# the backend only VALIDATES the JWT (see auth.py). There is no server-side
+# authorization-code flow, no client secret, and no session cookie.
 # Disabled by default so mock/dev needs no login.
 # ---------------------------------------------------------------------------
 AUTH_ENABLED = os.environ.get("BINDGUI_AUTH_ENABLED", "false").lower() == "true"
-# Secret for signing the session cookie (set a long random value in production).
-SESSION_SECRET = os.environ.get("BINDGUI_SESSION_SECRET", "dev-insecure-change-me")
-# Send the session cookie only over HTTPS (set true behind TLS in production).
-COOKIE_SECURE = os.environ.get("BINDGUI_COOKIE_SECURE", "false").lower() == "true"
-# Cookie SameSite policy: "lax" for same-origin (CloudFront proxies /api → ALB),
-# "none" when the SPA calls the API on a different origin (needs COOKIE_SECURE=true).
-COOKIE_SAMESITE = os.environ.get("BINDGUI_COOKIE_SAMESITE", "lax")
 
 # CORS — comma-separated web origins allowed to call the API from the browser.
-# Needed only when the SPA and API are on different origins (cross-origin).
+# Needed when the SPA and API are on different origins (cross-origin); the SPA
+# sends the bearer token in the Authorization header.
 # e.g. BINDGUI_CORS_ORIGINS="https://d5j3l1rgzmla.cloudfront.net"
 CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").split(",") if o.strip()]
-
-# Where to send the browser AFTER login/logout. In cross-origin mode (Option B)
-# the OIDC flow runs on the API origin, so this must point back at the SPA
-# (e.g. the CloudFront URL). Blank → "/" (correct for same-origin / Option A).
-WEB_APP_URL = os.environ.get("BINDGUI_WEB_APP_URL", "").rstrip("/")
 
 # ---------------------------------------------------------------------------
 # Email notifications on job completion/failure — AWS SES.
@@ -182,14 +172,11 @@ RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "resul
 LIBRARY_TARGETS_DIR = DATA_DIR / "library_targets"
 LIBRARY_SQLITE = Path(os.environ.get("BINDGUI_LIBRARY_SQLITE", DATA_DIR / "library.sqlite"))
 
+# Entra identifiers for bearer-token validation (auth.py). The SPA is a PUBLIC
+# client (PKCE, no secret); the backend needs only the tenant (to build the
+# JWKS / issuer URL) and the app/client id (the intended token audience).
 ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
-# A single CONFIDENTIAL web-app registration (client id + secret + redirect URI).
 ENTRA_CLIENT_ID = os.environ.get("BINDGUI_ENTRA_CLIENT_ID", "")
-ENTRA_CLIENT_SECRET = os.environ.get("BINDGUI_ENTRA_CLIENT_SECRET", "")
-# Full callback URL registered in Entra, e.g. https://app.example.edu/api/auth/callback
-# If blank, it is derived from the incoming request.
-AUTH_REDIRECT_URI = os.environ.get("BINDGUI_AUTH_REDIRECT_URI", "")
-AUTH_SCOPES = os.environ.get("BINDGUI_AUTH_SCOPES", "openid profile email")
 AUTHORITY = f"https://login.microsoftonline.com/{ENTRA_TENANT_ID}"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
