@@ -143,9 +143,9 @@ watches it."
   `notified.flag` file per job dir) so the email doesn't resend on repeat polls.
 - Recipient = `job["settings"]["submitted_by"]` — already populated from the
   signed-in WashU identity, no new field needed.
-- Sending mechanism: AWS SES via `boto3` (already a dependency) is the
-  natural choice given this deploys to AWS already — needs a verified sender
-  identity / production access in SES (an AWS-console step, not code).
+- Sending mechanism: SendGrid's REST API via `httpx` (already a dependency)
+  — needs a verified sender identity and an API key (a SendGrid-console step,
+  not code).
 
 **Testing checklist (once implemented)**
 - [ ] A COMPLETED job in mock mode sends exactly one email, with the correct
@@ -160,5 +160,5 @@ watches it."
   cross-notify
 - [ ] The email is readable in a plain-text client (no raw HTML tags visible,
   links actually resolve to the app)
-- [ ] A simulated SES failure (bad recipient, throttling) logs an error but
-  does not break `/api/jobs` polling for anyone else
+- [ ] A simulated SendGrid failure (bad recipient, throttling, bad API key)
+  logs an error but does not break `/api/jobs` polling for anyone else

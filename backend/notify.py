@@ -1,8 +1,9 @@
-"""Email the submitting user when their run finishes or fails, via AWS SES.
+"""Email the submitting user when their run finishes or fails, via SendGrid.
 
 Fails soft everywhere: a broken/unconfigured mailer must never break job
-polling. If `BINDGUI_SES_SENDER` is unset, we log what *would* have been sent
-instead of calling AWS — lets mock-mode dev work without any SES setup.
+polling. If `BINDGUI_SENDGRID_API_KEY` or `BINDGUI_EMAIL_SENDER` is unset, we
+log what *would* have been sent instead of calling SendGrid — lets mock-mode
+dev work without any SendGrid setup.
 """
 from __future__ import annotations
 
@@ -10,11 +11,9 @@ import json
 from pathlib import Path
 
 import config
+import httpx
 
-
-def _client():
-    import boto3  # lazy: only needed when actually sending
-    return boto3.client("ses", region_name=config.SES_REGION)
+SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
 
 
 def _read_design(job_dir: Path) -> dict:
@@ -28,7 +27,7 @@ def _read_design(job_dir: Path) -> dict:
 
 
 def _app_link() -> str:
-    return config.WEB_APP_URL or "the BindCraft app"
+    return config.APP_URL or "the BindCraft app"
 
 
 def notify_completed(job: dict, job_dir: Path, to: str) -> None:
@@ -56,11 +55,18 @@ def notify_failed(job: dict, to: str) -> None:
 
 
 def _send(to: str, subject: str, body: str) -> None:
-    if not config.SES_SENDER:
-        print(f"[notify] SES_SENDER not configured — would have emailed {to}:\n  {subject}")
+    if not config.SENDGRID_API_KEY or not config.EMAIL_SENDER:
+        print(f"[notify] SendGrid not configured — would have emailed {to}:\n  {subject}")
         return
-    _client().send_email(
-        Source=config.SES_SENDER,
-        Destination={"ToAddresses": [to]},
-        Message={"Subject": {"Data": subject}, "Body": {"Text": {"Data": body}}},
+    r = httpx.post(
+        SENDGRID_URL,
+        headers={"Authorization": f"Bearer {config.SENDGRID_API_KEY}"},
+        json={
+            "personalizations": [{"to": [{"email": to}]}],
+            "from": {"email": config.EMAIL_SENDER},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": body}],
+        },
+        timeout=15,
     )
+    r.raise_for_status()
