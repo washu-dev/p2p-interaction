@@ -5,14 +5,15 @@ BINDGUI_FETCH_SECRETS=true (local/dev has no AWS access), and each item is
 skipped when its own config is absent and never clobbers a file that already
 exists (a hand-written local override wins). Fetches:
 
-  1. DB connection settings -> backend/config.json (config.py's _setting()
-     prefers it). Reads the grouped MiniBinders/database/* secrets created by
-     terraform (terraform/main.tf): DB_HOST, DB_PORT, DB_NAME, DB_USER,
-     DB_PASSWORD. The group prefix is BINDGUI_DB_SECRET_PREFIX. Falls back to the
-     legacy flat MINIBINDERS-DBPASSWORD secret for the password only.
-  2. SSH private key -> the file at BINDGUI_SSH_KEY (chmod 600), so the Paramiko
-     ssh runner can authenticate to the RIS login node. Enabled by setting
-     BINDGUI_SSH_KEY_SECRET to the Secrets Manager secret holding the PEM key.
+  1. Value-shaped secrets -> backend/config.json (config.py's _setting() prefers
+     it): the grouped MiniBinders/database/* secrets from terraform (DB_HOST,
+     DB_PORT, DB_NAME, DB_USER, DB_PASSWORD; prefix BINDGUI_DB_SECRET_PREFIX,
+     legacy flat MINIBINDERS-DBPASSWORD fallback for the password), plus the
+     optional SSH key passphrase (BINDGUI_SSH_KEY_PASSPHRASE).
+  2. SSH private key (file-shaped secret) -> the file at BINDGUI_SSH_KEY (chmod
+     600), so the Paramiko ssh runner can authenticate to the RIS login node.
+     Enabled by setting BINDGUI_SSH_KEY_SECRET to the Secrets Manager secret
+     holding the PEM key (e.g. MiniBinders/ssh/PRIVATE_KEY).
   3. known_hosts -> the file at BINDGUI_SSH_KNOWN_HOSTS_FILE, written from the
      plain env var BINDGUI_SSH_KNOWN_HOSTS_DATA (host keys aren't secret, so this
      is an ordinary task-definition env var, not a Secrets Manager secret).
@@ -36,23 +37,24 @@ DB_SECRET_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
 # fallback when the grouped DB_PASSWORD above can't be read.
 DB_PASSWORD_SECRET_NAME = os.environ.get("BINDGUI_DB_PASSWORD_SECRET", "MINIBINDERS-DBPASSWORD")
 SSH_KEY_SECRET_NAME = os.environ.get("BINDGUI_SSH_KEY_SECRET", "")
+# Optional passphrase for the SSH key. Defaults to the KEY_PASSPHRASE sibling in
+# the same Secrets Manager group as the key (e.g. MiniBinders/ssh/PRIVATE_KEY ->
+# MiniBinders/ssh/KEY_PASSPHRASE); override with BINDGUI_SSH_PASSPHRASE_SECRET.
+# Absent/empty means the key is unencrypted — that is fine, not an error.
+SSH_PASSPHRASE_SECRET_NAME = os.environ.get("BINDGUI_SSH_PASSPHRASE_SECRET", "")
+if not SSH_PASSPHRASE_SECRET_NAME and "/" in SSH_KEY_SECRET_NAME:
+    SSH_PASSPHRASE_SECRET_NAME = SSH_KEY_SECRET_NAME.rsplit("/", 1)[0] + "/KEY_PASSPHRASE"
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
 
 
-def _fetch_db_config(client) -> int:
-    """Write DB connection settings from Secrets Manager into config.json.
+def _collect_db_config(client, cfg: dict) -> int:
+    """Add DB connection settings from Secrets Manager into `cfg`.
 
     Reads each MiniBinders/database/* key created by terraform. A missing
     non-secret key (host/port/name/user) is fine — config.py falls back to its
     same-named env var. The password is required; if the grouped DB_PASSWORD is
-    absent, fall back to the legacy flat secret. config.json is written 0600 and
-    is never overwritten if it already exists (a hand-written override wins).
+    absent, fall back to the legacy flat secret.
     """
-    if CONFIG_PATH.exists():
-        print(f"[fetch_secrets] {CONFIG_PATH.name} already present — leaving it alone")
-        return 0
-
-    cfg: dict[str, str] = {}
     for key in DB_SECRET_KEYS:
         secret_id = f"{DB_SECRET_PREFIX}/{key}"
         try:
@@ -83,11 +85,51 @@ def _fetch_db_config(client) -> int:
     if not cfg.get("DB_PASSWORD"):
         print("[fetch_secrets] FATAL: no DB password found in Secrets Manager", file=sys.stderr)
         return 1
+    return 0
+
+
+def _collect_ssh_passphrase(client, cfg: dict) -> int:
+    """Add the SSH key passphrase (value-shaped secret) into `cfg`, if one exists.
+
+    Best-effort: a missing or empty passphrase secret means the key is
+    unencrypted, which is valid — never fatal. config.py reads
+    BINDGUI_SSH_KEY_PASSPHRASE from config.json (env fallback)."""
+    if not SSH_PASSPHRASE_SECRET_NAME:
+        return 0
+    try:
+        response = client.get_secret_value(SecretId=SSH_PASSPHRASE_SECRET_NAME)
+    except client.exceptions.ResourceNotFoundException:
+        print(f"[fetch_secrets] {SSH_PASSPHRASE_SECRET_NAME} not found — SSH key has no passphrase")
+        return 0
+    except Exception as e:  # noqa: BLE001 — non-fatal; key may be unencrypted
+        print(f"[fetch_secrets] WARNING: could not fetch ssh passphrase "
+              f"'{SSH_PASSPHRASE_SECRET_NAME}': {e}", file=sys.stderr)
+        return 0
+    value = response.get("SecretString")
+    if value:
+        cfg["BINDGUI_SSH_KEY_PASSPHRASE"] = value
+        print(f"[fetch_secrets] loaded SSH key passphrase from {SSH_PASSPHRASE_SECRET_NAME}")
+    return 0
+
+
+def _fetch_secret_config(client) -> int:
+    """Write the value-shaped secrets (DB settings + SSH passphrase) from Secrets
+    Manager into config.json (0600). Never overwrites an existing config.json —
+    a hand-written local override wins."""
+    if CONFIG_PATH.exists():
+        print(f"[fetch_secrets] {CONFIG_PATH.name} already present — leaving it alone")
+        return 0
+
+    cfg: dict[str, str] = {}
+    rc = _collect_db_config(client, cfg)
+    if rc:
+        return rc
+    rc |= _collect_ssh_passphrase(client, cfg)
 
     CONFIG_PATH.write_text(json.dumps(cfg))
     CONFIG_PATH.chmod(0o600)
-    print(f"[fetch_secrets] wrote DB settings {sorted(cfg)} into {CONFIG_PATH.name}")
-    return 0
+    print(f"[fetch_secrets] wrote settings {sorted(cfg)} into {CONFIG_PATH.name}")
+    return rc
 
 
 def _fetch_ssh_key(client) -> int:
@@ -147,7 +189,7 @@ def main() -> int:
     client = boto3.client("secretsmanager", region_name=AWS_REGION)
 
     rc = 0
-    rc |= _fetch_db_config(client)
+    rc |= _fetch_secret_config(client)
     rc |= _fetch_ssh_key(client)
     rc |= _write_known_hosts()
     return rc

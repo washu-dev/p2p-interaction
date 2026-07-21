@@ -1,0 +1,6 @@
+{
+  "BINDGUI_BACKEND": "ssh",
+  "BINDGUI_AUTH_ENABLED": "true",
+  "BINDGUI_APP_URL": "localhost:3000",
+  "BINDGUI_EMAIL_SENDER": "di2accelerator@wustl.edu"
+}
