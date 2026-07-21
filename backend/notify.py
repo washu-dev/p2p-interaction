@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import config
 import httpx
+
+import config
 
 SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
 

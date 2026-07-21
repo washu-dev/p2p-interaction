@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import io
 
-import kinase_families
 import matplotlib
+
+import kinase_families
 
 matplotlib.use("Agg")  # headless: no display; must run before pyplot is imported
 import matplotlib.pyplot as plt  # noqa: E402
