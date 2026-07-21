@@ -1,0 +1,4 @@
+{
+  "BINDGUI_BACKEND": "mock",
+  "BINDGUI_AUTH_ENABLED": "false"
+}

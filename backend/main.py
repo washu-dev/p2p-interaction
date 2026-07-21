@@ -26,6 +26,15 @@ from fastapi.staticfiles import StaticFiles
 from runner import get_runner
 from stages import build_stages, overall_status
 
+# Log the effective config and validate it before anything else starts. Phase 1
+# is WARN-ONLY: problems are logged but don't abort, so a rollout is never
+# blocked while the per-env config files are still being populated. Flip to
+# fail-fast (raise SystemExit) once config/<env>.json is authoritative.
+print(config.effective_config_log())
+_config_problems = config.validate()
+for _p in _config_problems:
+    print(f"[config] WARNING: {_p}")
+
 app = FastAPI(title="BindCraft GUI")
 
 # Allow the Vite dev server and any configured origins to call the API.

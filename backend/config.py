@@ -1,24 +1,28 @@
 """Central configuration for the BindCraft GUI backend.
 
-Values are resolved by _setting(): backend/config.json (git-ignored) first, then
-the matching environment variable, then a default. This lets local dev put
-non-secret config in one config.json instead of exporting many env vars, while
-the deployed container (which ships no config.json) keeps using its
-task-definition env vars unchanged. config.json is also written at container
-startup by fetch_secrets.py (DB settings from Secrets Manager).
+Values are resolved by config_loader.get() with precedence (high → low):
+process env var > backend/config.json (secrets from fetch_secrets.py) >
+backend/config/<env>.json (committed OPEN per-env values, selected by
+BINDGUI_ENV) > code default. So a whole environment's non-secret config lives in
+one committed file, its secrets in AWS Secrets Manager, and the task definition
+only needs BINDGUI_ENV. See config_loader.py and configschema.py.
 
   * BINDGUI_BACKEND=mock   -> staged jobs are simulated on a laptop.
   * BINDGUI_BACKEND=slurm  -> real sbatch chain on the cluster login node.
   * BINDGUI_BACKEND=ssh    -> backend off-cluster, drives the login node via Paramiko.
 
-A few values are read ONLY from the environment (never config.json): GIT_SHA
+A few values are read ONLY from the environment (never a config file): GIT_SHA
 (baked at image build), SLURM_ACCOUNT, and the SSH credential trio SSH_KEY /
 SSH_KEY_PASSPHRASE / SSH_KNOWN_HOSTS_FILE (materialized at runtime by
 fetch_secrets.py / the ECS task definition).
+
+validate() (fail-fast, mode-aware) and effective_config_log() (redacted
+startup dump) are called from main.py at startup.
 """
-import json
-import os
 from pathlib import Path
+
+import config_loader
+import configschema
 
 BASE_DIR = Path(__file__).resolve().parent          # gui/backend
 GUI_DIR = BASE_DIR.parent                            # gui
@@ -28,41 +32,26 @@ PIPELINE_DIR = BASE_DIR / "pipeline"
 # (always in the Docker image; locally requires `npm run build` or use Vite dev).
 FRONTEND_DIR = GUI_DIR / "web" / "dist"
 
-# ---------------------------------------------------------------------------
-# Config source: backend/config.json (git-ignored) with env-var fallback.
-# Precedence per key: config.json value (if present & non-empty) > env var >
-# default. The key string is BOTH the config.json key and the environment
-# variable name (e.g. "BINDGUI_BACKEND", "DB_HOST").
-# ---------------------------------------------------------------------------
-_CONFIG_PATH = BASE_DIR / "config.json"
-
-
-def _load_config() -> dict:
-    if _CONFIG_PATH.exists():
-        try:
-            return json.loads(_CONFIG_PATH.read_text())
-        except (json.JSONDecodeError, OSError) as e:  # malformed file → fall back to env
-            print(f"[config] ignoring unreadable {_CONFIG_PATH.name}: {e}")
-    return {}
-
-
-_CFG = _load_config()
+# Selected environment (dev|staging|prod); picks the committed open config file.
+ENV = config_loader.ENV
 
 
 def _setting(name: str, default=""):
-    """config.json[name] if present & non-empty, else env var `name`, else default."""
-    val = _CFG.get(name)
-    if val is None or val == "":
-        val = os.environ.get(name, default)
-    return val
+    """Resolve via config_loader (env > config.json > config/<env>.json > default)."""
+    return config_loader.get(name, default)
+
+
+def _env_only(name: str, default=""):
+    """Resolve from the environment only (skips both JSON layers)."""
+    return config_loader.get(name, default, env_only=True)
 
 
 # "mock" | "slurm" | "ssh"
 BACKEND_MODE = str(_setting("BINDGUI_BACKEND", "mock")).lower()
 
 # Baked in at image build time (see Dockerfile ARGs) so /api/health can report
-# what's actually deployed. GIT_SHA is env-only (never config.json).
-GIT_SHA = os.environ.get("GIT_SHA", "unknown")
+# what's actually deployed. GIT_SHA is env-only (never a config file).
+GIT_SHA = _env_only("GIT_SHA", "unknown")
 BUILD_TIME = _setting("BUILD_TIME", "unknown")
 
 DATA_DIR = Path(_setting("BINDGUI_DATA_DIR", GUI_DIR / "data"))
@@ -73,7 +62,7 @@ DB_PATH = Path(_setting("BINDGUI_DB", DATA_DIR / "bindgui.sqlite"))
 # Cluster / SLURM settings (used when BACKEND_MODE == "slurm")
 # ---------------------------------------------------------------------------
 # SLURM_ACCOUNT is env-only (per-deployment, set on the task definition).
-SLURM_ACCOUNT = os.environ.get("BINDGUI_SLURM_ACCOUNT", "compute2-rmitra")
+SLURM_ACCOUNT = _env_only("BINDGUI_SLURM_ACCOUNT", "compute2-rmitra")
 SLURM_PARTITION = _setting("BINDGUI_SLURM_PARTITION", "general-gpu")
 
 # BindCraft checkout (holds bindcraft.py + settings_filters/ + settings_advanced/).
@@ -121,9 +110,9 @@ SSH_USER = _setting("BINDGUI_SSH_USER", "")
 # The SSH credential trio is env-only: SSH_KEY / SSH_KNOWN_HOSTS_FILE are file
 # paths fetch_secrets.py writes at container startup, and the passphrase is a
 # secret — none of these belong in config.json.
-SSH_KEY = os.environ.get("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the host
-SSH_KEY_PASSPHRASE = os.environ.get("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
-SSH_KNOWN_HOSTS_FILE = os.environ.get("BINDGUI_SSH_KNOWN_HOSTS_FILE", "")
+SSH_KEY = _env_only("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the host
+SSH_KEY_PASSPHRASE = _env_only("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
+SSH_KNOWN_HOSTS_FILE = _env_only("BINDGUI_SSH_KNOWN_HOSTS_FILE", "")
 # Per-job scratch root ON THE CLUSTER (job subdirs + uploaded pipeline live here).
 REMOTE_DIR = _setting(
     "BINDGUI_REMOTE_DIR",
@@ -218,3 +207,31 @@ def list_target_kinases():
         if names:
             return names
     return SAMPLE_KINASES
+
+
+# ---------------------------------------------------------------------------
+# Startup validation + effective-config logging (called from main.py).
+# ---------------------------------------------------------------------------
+def validate() -> list[str]:
+    """Fail-fast, mode-aware config checks. Returns problems (empty == OK)."""
+    return configschema.validate(
+        mode=BACKEND_MODE,
+        env=ENV,
+        get=lambda name: str(config_loader.get(name, "")),
+    )
+
+
+def effective_config_log() -> str:
+    """A redacted table of every resolved setting and where it came from, so a
+    misconfiguration (e.g. an identity key falling through to ⚠ DEFAULT) is
+    obvious in the container logs. Sensitive values are never printed."""
+    rows = []
+    for name in sorted(config_loader.resolved()):
+        value, src = config_loader.resolved()[name]
+        if name in configschema.SENSITIVE:
+            shown = f"set (len {len(value)})" if value else "MISSING"
+        else:
+            shown = value if value != "" else "(empty)"
+        flag = " ⚠" if src == "DEFAULT" and name not in configschema.BENIGN_DEFAULTS else ""
+        rows.append(f"  {name:<32} = {shown:<48} [{src}]{flag}")
+    return f"[config] env={ENV} backend={BACKEND_MODE} — effective settings:\n" + "\n".join(rows)
