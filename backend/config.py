@@ -12,9 +12,10 @@ only needs BINDGUI_ENV. See config_loader.py and configschema.py.
   * BINDGUI_BACKEND=ssh    -> backend off-cluster, drives the login node via Paramiko.
 
 A few values are read ONLY from the environment (never a config file): GIT_SHA
-(baked at image build), SLURM_ACCOUNT, and the SSH credential trio SSH_KEY /
-SSH_KEY_PASSPHRASE / SSH_KNOWN_HOSTS_FILE (materialized at runtime by
-fetch_secrets.py / the ECS task definition).
+(baked at image build), SLURM_ACCOUNT, and the SSH file PATHS SSH_KEY /
+SSH_KNOWN_HOSTS_FILE (whose files fetch_secrets.py materializes at startup). The
+SSH key passphrase is a value-shaped secret written into config.json, so it
+resolves like any other setting.
 
 validate() (fail-fast, mode-aware) and effective_config_log() (redacted
 startup dump) are called from main.py at startup.
@@ -107,11 +108,12 @@ SAMPLE_KINASES = [
 SSH_HOST = _setting("BINDGUI_SSH_HOST", "")
 SSH_PORT = int(_setting("BINDGUI_SSH_PORT", "22"))
 SSH_USER = _setting("BINDGUI_SSH_USER", "")
-# The SSH credential trio is env-only: SSH_KEY / SSH_KNOWN_HOSTS_FILE are file
-# paths fetch_secrets.py writes at container startup, and the passphrase is a
-# secret — none of these belong in config.json.
+# SSH_KEY / SSH_KNOWN_HOSTS_FILE are file PATHS (env-only): fetch_secrets.py
+# materializes the key + known_hosts files there at startup. The passphrase is a
+# value-shaped secret: fetch_secrets.py writes it into config.json (from Secrets
+# Manager), so it resolves via _setting (config.json > env).
 SSH_KEY = _env_only("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the host
-SSH_KEY_PASSPHRASE = _env_only("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
+SSH_KEY_PASSPHRASE = _setting("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
 SSH_KNOWN_HOSTS_FILE = _env_only("BINDGUI_SSH_KNOWN_HOSTS_FILE", "")
 # Per-job scratch root ON THE CLUSTER (job subdirs + uploaded pipeline live here).
 REMOTE_DIR = _setting(

@@ -60,10 +60,13 @@ to prod.
 
 - ✅ **Phase 1** — schema + loader + `config/<env>.json` + warn-only validation +
   effective-config log. Non-breaking (env still wins), tested.
-- ⬜ **Phase 2** — schema-driven Secrets Manager fetch (fold in `fetch_secrets.py`);
-  add `ssh/*` + `notify/*` terraform secret groups; move the SendGrid key out of
-  the plaintext task-def env into Secrets Manager (**rotate it** — it was stored
-  in cleartext).
+- 🟡 **Phase 2 (in progress)** — SSH secrets wired: `fetch_secrets.py`
+  materializes the file-shaped key (`MiniBinders/ssh/PRIVATE_KEY` →
+  `BINDGUI_SSH_KEY`, chmod 600) and reads the optional value-shaped passphrase
+  (`MiniBinders/ssh/KEY_PASSPHRASE`, derived from the key's group) into
+  `config.json`. Still to do: move the SendGrid key out of the plaintext task-def
+  env into Secrets Manager (**rotate it** — it was stored in cleartext); add the
+  `notify/*` terraform group.
 - ⬜ **Phase 3** — remove now-redundant env vars from the task definition (rely on
   `config/prod.json`), set `BINDGUI_ENV=prod`, flip validation to fail-fast.
 - ⬜ **Phase 4** — migrate to `pydantic-settings` (typed/required fields); load the
