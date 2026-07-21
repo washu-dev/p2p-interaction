@@ -19,6 +19,8 @@ import json
 import os
 from pathlib import Path
 
+import configschema
+
 BASE_DIR = Path(__file__).resolve().parent
 RUNTIME_CONFIG = BASE_DIR / "config.json"        # written by fetch_secrets.py (secrets)
 ENV_CONFIG_DIR = BASE_DIR / "config"             # committed open per-env files
@@ -39,6 +41,15 @@ def _read_json(path: Path) -> dict:
 
 _RUNTIME = _read_json(RUNTIME_CONFIG)
 _OPEN = _read_json(ENV_CONFIG_DIR / f"{ENV}.json")
+
+# Enforce the split: a sensitive key must never be served from the committed
+# open file (it belongs in Secrets Manager). Drop any that slipped in, loudly.
+_leaked = sorted(set(_OPEN) & configschema.SENSITIVE)
+if _leaked:
+    print(f"[config] WARNING: ignoring sensitive key(s) found in config/{ENV}.json "
+          f"(must come from Secrets Manager, not the committed file): {_leaked}")
+    for _k in _leaked:
+        _OPEN.pop(_k, None)
 
 # name -> (resolved_value, source_label); populated as keys are resolved so the
 # startup log reflects exactly what the app is running with.

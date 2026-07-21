@@ -15,7 +15,14 @@ ALL_MODES = {"mock", "slurm", "ssh"}
 
 # Sensitive keys: redacted in logs; must be delivered via Secrets Manager, never
 # committed to the open config/<env>.json. (Phase 2: map each to its SM name.)
+# The whole DB connection (not just the password) is sourced from the terraform
+# MiniBinders/database/* group and materialized into config.json by
+# fetch_secrets.py, so host/port/name/user are treated as sensitive too.
 SENSITIVE = {
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "DB_USER",
     "DB_PASSWORD",
     "BINDGUI_SENDGRID_API_KEY",
     "BINDGUI_SSH_KEY_PASSPHRASE",

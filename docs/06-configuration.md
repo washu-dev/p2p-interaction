@@ -4,8 +4,11 @@ One environment's configuration lives in **one place**, split by sensitivity:
 
 - **Open (committed to git):** `backend/config/<env>.json` — everything non-secret
   for that environment, selected by `BINDGUI_ENV` (`dev` | `staging` | `prod`).
-- **Sensitive (AWS Secrets Manager, terraform-managed):** DB password, SendGrid
-  key, SSH passphrase/key — never committed, materialized at container startup.
+- **Sensitive (AWS Secrets Manager, terraform-managed):** the whole DB
+  connection (host/port/name/user/password, from the `MiniBinders/database/*`
+  group), SendGrid key, SSH passphrase/key — never committed, materialized at
+  container startup by `fetch_secrets.py`. `config_loader` strips any sensitive
+  key that slips into an open file (and warns), so the split can't be bypassed.
 - **Schema (`backend/configschema.py`):** the single declaration of which keys
   are sensitive, which are required in which backend mode, and which defaults
   are benign. Drives validation and log redaction (and, in Phase 2, the Secrets

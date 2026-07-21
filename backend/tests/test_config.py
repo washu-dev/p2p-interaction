@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BACKEND))  # so `import config`/`configschema` works standalone or under pytest
 
 _SNIPPET = "import config; print('PROBLEMS:', config.validate())"
 
@@ -43,12 +44,22 @@ def test_prod_ssh_requires_credentials():
 
 
 def test_happy_prod_is_clean():
+    # DB_HOST now arrives from Secrets Manager (here simulated via env); it is no
+    # longer in the committed open file.
     out = _run({
         "BINDGUI_ENV": "prod", "BINDGUI_BACKEND": "ssh", "BINDGUI_AUTH_ENABLED": "true",
+        "DB_HOST": "db.example",
         "BINDGUI_SSH_HOST": "h", "BINDGUI_SSH_USER": "u",
         "BINDGUI_SSH_KEY": "/k", "BINDGUI_SSH_KNOWN_HOSTS_FILE": "/kh",
     })
     assert "PROBLEMS: []" in out
+
+
+def test_db_connection_keys_are_sensitive():
+    # Redacted in the log, never shown in cleartext, even when set via env.
+    import configschema
+    for key in ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"):
+        assert key in configschema.SENSITIVE
 
 
 def test_invalid_backend_rejected():
