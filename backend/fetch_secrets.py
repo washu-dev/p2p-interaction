@@ -5,7 +5,7 @@ BINDGUI_FETCH_SECRETS=true (local/dev has no AWS access), and each item is
 skipped when its own config is absent and never clobbers a file that already
 exists (a hand-written local override wins). Fetches:
 
-  1. DB connection settings -> backend/config.json (config.py's _db_setting()
+  1. DB connection settings -> backend/config.json (config.py's _setting()
      prefers it). Reads the grouped MiniBinders/database/* secrets created by
      terraform (terraform/main.tf): DB_HOST, DB_PORT, DB_NAME, DB_USER,
      DB_PASSWORD. The group prefix is BINDGUI_DB_SECRET_PREFIX. Falls back to the

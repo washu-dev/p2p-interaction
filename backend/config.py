@@ -1,9 +1,20 @@
 """Central configuration for the BindCraft GUI backend.
 
-Override anything via environment variables so the same code runs in two modes:
+Values are resolved by _setting(): backend/config.json (git-ignored) first, then
+the matching environment variable, then a default. This lets local dev put
+non-secret config in one config.json instead of exporting many env vars, while
+the deployed container (which ships no config.json) keeps using its
+task-definition env vars unchanged. config.json is also written at container
+startup by fetch_secrets.py (DB settings from Secrets Manager).
 
   * BINDGUI_BACKEND=mock   -> staged jobs are simulated on a laptop.
   * BINDGUI_BACKEND=slurm  -> real sbatch chain on the cluster login node.
+  * BINDGUI_BACKEND=ssh    -> backend off-cluster, drives the login node via Paramiko.
+
+A few values are read ONLY from the environment (never config.json): GIT_SHA
+(baked at image build), SLURM_ACCOUNT, and the SSH credential trio SSH_KEY /
+SSH_KEY_PASSPHRASE / SSH_KNOWN_HOSTS_FILE (materialized at runtime by
+fetch_secrets.py / the ECS task definition).
 """
 import json
 import os
@@ -17,53 +28,79 @@ PIPELINE_DIR = BASE_DIR / "pipeline"
 # (always in the Docker image; locally requires `npm run build` or use Vite dev).
 FRONTEND_DIR = GUI_DIR / "web" / "dist"
 
-# "mock"  -> simulate jobs locally (laptop dev)
-# "slurm" -> backend runs ON the login node, submits via local sbatch
-# "ssh"   -> backend runs OFF-cluster (e.g. AWS), drives the login node via Paramiko
-BACKEND_MODE = os.environ.get("BINDGUI_BACKEND", "mock").lower()
+# ---------------------------------------------------------------------------
+# Config source: backend/config.json (git-ignored) with env-var fallback.
+# Precedence per key: config.json value (if present & non-empty) > env var >
+# default. The key string is BOTH the config.json key and the environment
+# variable name (e.g. "BINDGUI_BACKEND", "DB_HOST").
+# ---------------------------------------------------------------------------
+_CONFIG_PATH = BASE_DIR / "config.json"
+
+
+def _load_config() -> dict:
+    if _CONFIG_PATH.exists():
+        try:
+            return json.loads(_CONFIG_PATH.read_text())
+        except (json.JSONDecodeError, OSError) as e:  # malformed file → fall back to env
+            print(f"[config] ignoring unreadable {_CONFIG_PATH.name}: {e}")
+    return {}
+
+
+_CFG = _load_config()
+
+
+def _setting(name: str, default=""):
+    """config.json[name] if present & non-empty, else env var `name`, else default."""
+    val = _CFG.get(name)
+    if val is None or val == "":
+        val = os.environ.get(name, default)
+    return val
+
+
+# "mock" | "slurm" | "ssh"
+BACKEND_MODE = str(_setting("BINDGUI_BACKEND", "mock")).lower()
 
 # Baked in at image build time (see Dockerfile ARGs) so /api/health can report
-# what's actually deployed without needing a git checkout inside the container.
+# what's actually deployed. GIT_SHA is env-only (never config.json).
 GIT_SHA = os.environ.get("GIT_SHA", "unknown")
-BUILD_TIME = os.environ.get("BUILD_TIME", "unknown")
+BUILD_TIME = _setting("BUILD_TIME", "unknown")
 
-DATA_DIR = Path(os.environ.get("BINDGUI_DATA_DIR", GUI_DIR / "data"))
+DATA_DIR = Path(_setting("BINDGUI_DATA_DIR", GUI_DIR / "data"))
 JOBS_DIR = DATA_DIR / "jobs"
-DB_PATH = Path(os.environ.get("BINDGUI_DB", DATA_DIR / "bindgui.sqlite"))
+DB_PATH = Path(_setting("BINDGUI_DB", DATA_DIR / "bindgui.sqlite"))
 
 # ---------------------------------------------------------------------------
 # Cluster / SLURM settings (used when BACKEND_MODE == "slurm")
 # ---------------------------------------------------------------------------
+# SLURM_ACCOUNT is env-only (per-deployment, set on the task definition).
 SLURM_ACCOUNT = os.environ.get("BINDGUI_SLURM_ACCOUNT", "compute2-rmitra")
-SLURM_PARTITION = os.environ.get("BINDGUI_SLURM_PARTITION", "general-gpu")
+SLURM_PARTITION = _setting("BINDGUI_SLURM_PARTITION", "general-gpu")
 
 # BindCraft checkout (holds bindcraft.py + settings_filters/ + settings_advanced/).
-BINDCRAFT_DIR = Path(os.environ.get("BINDGUI_BINDCRAFT_DIR", REPO_DIR))
+BINDCRAFT_DIR = Path(_setting("BINDGUI_BINDCRAFT_DIR", REPO_DIR))
 SETTINGS_FILTERS_DIR = BINDCRAFT_DIR / "settings_filters"
 SETTINGS_ADVANCED_DIR = BINDCRAFT_DIR / "settings_advanced"
 
 # Directory holding one <kinase>.fasta per target in the selectivity panel.
-TARGET_FASTA_DIR = os.environ.get("BINDGUI_TARGET_FASTA_DIR", "../kinase_sequence")
+TARGET_FASTA_DIR = _setting("BINDGUI_TARGET_FASTA_DIR", "../kinase_sequence")
 
 # Prepended to PATH so `colabfold_batch` is found inside jobs.
-COLABFOLD_BIN_DIR = os.environ.get(
+COLABFOLD_BIN_DIR = _setting(
     "BINDGUI_COLABFOLD_BIN",
     "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/localcolabfold/.pixi/envs/default/bin",
 )
 
 # micromamba env name + root prefix used by the bindcraft stage.
-# MAMBA_ROOT defaults to <BindCraft>/Y to match your bindcraft.slurm CONDA_BASE;
-# override BINDGUI_MAMBA_ROOT if your env root lives elsewhere.
-MICROMAMBA_ENV = os.environ.get("BINDGUI_MICROMAMBA_ENV", "BindCraft")
-MAMBA_ROOT = os.environ.get("BINDGUI_MAMBA_ROOT", str(BINDCRAFT_DIR / "Y"))
+MICROMAMBA_ENV = _setting("BINDGUI_MICROMAMBA_ENV", "BindCraft")
+MAMBA_ROOT = _setting("BINDGUI_MAMBA_ROOT", str(BINDCRAFT_DIR / "Y"))
 
 # ---------------------------------------------------------------------------
 # Mock-mode settings
 # ---------------------------------------------------------------------------
-MOCK_RESULT_PNG = Path(os.environ.get("BINDGUI_MOCK_PNG", REPO_DIR / "iptm_scores.png"))
-MOCK_TARGET_PDB = Path(os.environ.get("BINDGUI_MOCK_PDB", REPO_DIR / "example" / "PDL1.pdb"))
+MOCK_RESULT_PNG = Path(_setting("BINDGUI_MOCK_PNG", REPO_DIR / "iptm_scores.png"))
+MOCK_TARGET_PDB = Path(_setting("BINDGUI_MOCK_PDB", REPO_DIR / "example" / "PDL1.pdb"))
 # Seconds each simulated stage takes (fold, design, profile).
-MOCK_STAGE_SEC = int(os.environ.get("BINDGUI_MOCK_STAGE_SEC", "4"))
+MOCK_STAGE_SEC = int(_setting("BINDGUI_MOCK_STAGE_SEC", "4"))
 
 # The curated selectivity panel. These names MUST match the <name>.fasta files in
 # BINDGUI_TARGET_FASTA_DIR on the cluster: the profile stage builds one
@@ -76,19 +113,19 @@ SAMPLE_KINASES = [
 # SSH / remote mode  (BACKEND_MODE == "ssh")
 # Backend hosted off-cluster (AWS) drives the login node via Paramiko + an RSA
 # key pair. In this mode BINDCRAFT_DIR / TARGET_FASTA_DIR / COLABFOLD_BIN /
-# MAMBA_ROOT above must be CLUSTER paths (set them via env on the AWS host).
+# MAMBA_ROOT above must be CLUSTER paths (set them via config.json or env).
 # ---------------------------------------------------------------------------
-SSH_HOST = os.environ.get("BINDGUI_SSH_HOST", "")
-SSH_PORT = int(os.environ.get("BINDGUI_SSH_PORT", "22"))
-SSH_USER = os.environ.get("BINDGUI_SSH_USER", "")
-SSH_KEY = os.environ.get("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the AWS host
+SSH_HOST = _setting("BINDGUI_SSH_HOST", "")
+SSH_PORT = int(_setting("BINDGUI_SSH_PORT", "22"))
+SSH_USER = _setting("BINDGUI_SSH_USER", "")
+# The SSH credential trio is env-only: SSH_KEY / SSH_KNOWN_HOSTS_FILE are file
+# paths fetch_secrets.py writes at container startup, and the passphrase is a
+# secret — none of these belong in config.json.
+SSH_KEY = os.environ.get("BINDGUI_SSH_KEY", "")  # path to the PRIVATE key on the host
 SSH_KEY_PASSPHRASE = os.environ.get("BINDGUI_SSH_KEY_PASSPHRASE", "") or None
-# Path to a known_hosts file for host-key verification (RejectPolicy).
-# If blank, Paramiko loads the system default (~/.ssh/known_hosts).
-# Populate once with: ssh-keyscan <SSH_HOST> >> <file>
 SSH_KNOWN_HOSTS_FILE = os.environ.get("BINDGUI_SSH_KNOWN_HOSTS_FILE", "")
 # Per-job scratch root ON THE CLUSTER (job subdirs + uploaded pipeline live here).
-REMOTE_DIR = os.environ.get(
+REMOTE_DIR = _setting(
     "BINDGUI_REMOTE_DIR",
     f"/storage1/fs1/rmitra/Active/minibinders/{SSH_USER or 'USER'}/bindgui",
 )
@@ -101,13 +138,13 @@ REMOTE_PIPELINE_DIR = REMOTE_DIR + "/pipeline"
 # authorization-code flow, no client secret, and no session cookie.
 # Disabled by default so mock/dev needs no login.
 # ---------------------------------------------------------------------------
-AUTH_ENABLED = os.environ.get("BINDGUI_AUTH_ENABLED", "false").lower() == "true"
+AUTH_ENABLED = str(_setting("BINDGUI_AUTH_ENABLED", "false")).lower() == "true"
 
 # CORS — comma-separated web origins allowed to call the API from the browser.
 # Needed when the SPA and API are on different origins (cross-origin); the SPA
 # sends the bearer token in the Authorization header.
 # e.g. BINDGUI_CORS_ORIGINS="https://d5j3l1rgzmla.cloudfront.net"
-CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").split(",") if o.strip()]
+CORS_ORIGINS = [o.strip() for o in str(_setting("BINDGUI_CORS_ORIGINS", "")).split(",") if o.strip()]
 
 # ---------------------------------------------------------------------------
 # Email notifications on job completion/failure — SendGrid.
@@ -115,57 +152,31 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 # watch. Blank SENDGRID_API_KEY/EMAIL_SENDER disables real sending —
 # notify.py logs instead, so mock-mode dev needs no SendGrid setup.
 # ---------------------------------------------------------------------------
-SENDGRID_API_KEY = os.environ.get("BINDGUI_SENDGRID_API_KEY", "")
-# Not secrets — safe to default in code. Still overridable via env var.
-EMAIL_SENDER = os.environ.get("BINDGUI_EMAIL_SENDER", "di2accelerator@wustl.edu")
+SENDGRID_API_KEY = _setting("BINDGUI_SENDGRID_API_KEY", "")
+# Not secrets — safe to default in code. Still overridable via config.json/env.
+EMAIL_SENDER = _setting("BINDGUI_EMAIL_SENDER", "di2accelerator@wustl.edu")
 # Link back to the SPA, included in notification emails. Not auth-related —
 # just where a user should click to see their run.
-APP_URL = os.environ.get("BINDGUI_APP_URL", "https://d5j3l1rgzmla.cloudfront.net").rstrip("/")
+APP_URL = str(_setting("BINDGUI_APP_URL", "https://d5j3l1rgzmla.cloudfront.net")).rstrip("/")
 
 # How often the backend checks unfinished jobs on its own, independent of any
 # browser polling — otherwise a completed/failed job with no open browser
 # tab never triggers its email.
-BACKGROUND_POLL_SEC = int(os.environ.get("BINDGUI_BACKGROUND_POLL_SEC", "20"))
+BACKGROUND_POLL_SEC = int(_setting("BINDGUI_BACKGROUND_POLL_SEC", "20"))
 
 # ---------------------------------------------------------------------------
 # Binder library — opt-in public store of binder + selectivity results.
 # Postgres (RDS) in production; a local SQLite file for dev when DB_HOST is unset.
 # (DB_HOST tolerates a trailing slash, which RDS console output sometimes adds.)
-#
-# Settings come from backend/config.json (gitignored, holds RDS credentials for
-# local use) with environment variables as a fallback. Per key the precedence is
-# config.json value (if present and non-empty) > env var > default. The deployed
-# container ships no config.json, so it keeps using its env vars unchanged.
+# The DB_* keys use bare names (no BINDGUI_ prefix) — fetch_secrets.py writes the
+# same names into config.json from the grouped MiniBinders/database/* secrets.
 # ---------------------------------------------------------------------------
-_DB_CONFIG_PATH = BASE_DIR / "config.json"
-
-
-def _load_db_config() -> dict:
-    if _DB_CONFIG_PATH.exists():
-        try:
-            return json.loads(_DB_CONFIG_PATH.read_text())
-        except (json.JSONDecodeError, OSError) as e:  # malformed file → fall back to env
-            print(f"[config] ignoring unreadable {_DB_CONFIG_PATH.name}: {e}")
-    return {}
-
-
-_DB_CFG = _load_db_config()
-
-
-def _db_setting(key: str, default: str = "") -> str:
-    """config.json value if set, else the same-named env var, else default."""
-    val = _DB_CFG.get(key)
-    if val is None or val == "":
-        val = os.environ.get(key, default)
-    return val
-
-
-DB_HOST = str(_db_setting("DB_HOST")).rstrip("/")
-DB_PORT = int(_db_setting("DB_PORT", "5432"))
-DB_USER = _db_setting("DB_USER")
-DB_PASSWORD = _db_setting("DB_PASSWORD")
-DB_NAME = _db_setting("DB_NAME")
-RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
+DB_HOST = str(_setting("DB_HOST")).rstrip("/")
+DB_PORT = int(_setting("DB_PORT", "5432"))
+DB_USER = _setting("DB_USER")
+DB_PASSWORD = _setting("DB_PASSWORD")
+DB_NAME = _setting("DB_NAME")
+RESULTS_SQLITE = Path(_setting("BINDGUI_RESULTS_SQLITE", DATA_DIR / "results.sqlite"))
 
 # ---------------------------------------------------------------------------
 # Shared target library — FASTA/PDB files (fetched from UniProt or uploaded
@@ -174,13 +185,13 @@ RESULTS_SQLITE = Path(os.environ.get("BINDGUI_RESULTS_SQLITE", DATA_DIR / "resul
 # Same Postgres-in-prod / SQLite-in-dev split as the results library above.
 # ---------------------------------------------------------------------------
 LIBRARY_TARGETS_DIR = DATA_DIR / "library_targets"
-LIBRARY_SQLITE = Path(os.environ.get("BINDGUI_LIBRARY_SQLITE", DATA_DIR / "library.sqlite"))
+LIBRARY_SQLITE = Path(_setting("BINDGUI_LIBRARY_SQLITE", DATA_DIR / "library.sqlite"))
 
 # Entra identifiers for bearer-token validation (auth.py). The SPA is a PUBLIC
 # client (PKCE, no secret); the backend needs only the tenant (to build the
 # JWKS / issuer URL) and the app/client id (the intended token audience).
-ENTRA_TENANT_ID = os.environ.get("BINDGUI_ENTRA_TENANT_ID", "")
-ENTRA_CLIENT_ID = os.environ.get("BINDGUI_ENTRA_CLIENT_ID", "")
+ENTRA_TENANT_ID = _setting("BINDGUI_ENTRA_TENANT_ID", "")
+ENTRA_CLIENT_ID = _setting("BINDGUI_ENTRA_CLIENT_ID", "")
 AUTHORITY = f"https://login.microsoftonline.com/{ENTRA_TENANT_ID}"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
