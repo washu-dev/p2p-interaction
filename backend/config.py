@@ -116,10 +116,11 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("BINDGUI_CORS_ORIGINS", "").sp
 # notify.py logs instead, so mock-mode dev needs no SendGrid setup.
 # ---------------------------------------------------------------------------
 SENDGRID_API_KEY = os.environ.get("BINDGUI_SENDGRID_API_KEY", "")
-EMAIL_SENDER = os.environ.get("BINDGUI_EMAIL_SENDER", "")  # verified SendGrid sender identity
-# Link back to the SPA, included in notification emails (e.g. the CloudFront
-# URL). Not auth-related — just where a user should click to see their run.
-APP_URL = os.environ.get("BINDGUI_APP_URL", "").rstrip("/")
+# Not secrets — safe to default in code. Still overridable via env var.
+EMAIL_SENDER = os.environ.get("BINDGUI_EMAIL_SENDER", "di2accelerator@wustl.edu")
+# Link back to the SPA, included in notification emails. Not auth-related —
+# just where a user should click to see their run.
+APP_URL = os.environ.get("BINDGUI_APP_URL", "https://d5j3l1rgzmla.cloudfront.net").rstrip("/")
 
 # How often the backend checks unfinished jobs on its own, independent of any
 # browser polling — otherwise a completed/failed job with no open browser
