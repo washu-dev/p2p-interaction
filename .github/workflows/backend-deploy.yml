@@ -183,10 +183,12 @@ jobs:
           task-definition: task-definition.json
           container-name:  ${{ env.CONTAINER_NAME }}
           image:           ${{ needs.build.outputs.image }}
-          # Pulled from a GitHub Actions secret so the key never appears in
-          # code, logs, or the AWS console — GitHub redacts registered
-          # secrets from all workflow output automatically.
+          # BINDGUI_ENV selects the committed per-env config file
+          # (backend/config/prod.json). SendGrid key is pulled from a GitHub
+          # Actions secret so it never appears in code, logs, or the AWS console
+          # — GitHub redacts registered secrets from all workflow output.
           environment-variables: |
+            BINDGUI_ENV=prod
             BINDGUI_SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
 
       - name: Deploy to ECS service
