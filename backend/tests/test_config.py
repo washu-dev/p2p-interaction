@@ -32,7 +32,9 @@ def test_dev_has_no_problems():
 
 
 def test_prod_flags_mock_and_auth():
-    out = _run({"BINDGUI_ENV": "prod"})
+    # Force the fail-open conditions via env so the test is independent of the
+    # values config/prod.json happens to ship.
+    out = _run({"BINDGUI_ENV": "prod", "BINDGUI_BACKEND": "mock", "BINDGUI_AUTH_ENABLED": "false"})
     assert "BINDGUI_BACKEND=mock in prod" in out
     assert "BINDGUI_AUTH_ENABLED must be true in prod" in out
 

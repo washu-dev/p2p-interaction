@@ -12,6 +12,12 @@ import uuid
 import zipfile
 from pathlib import Path
 
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+import auth
 import config
 import db
 import kinase_families
@@ -19,10 +25,6 @@ import notify
 import targetlibrary
 import uniprot
 from auth import require_user
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from runner import get_runner
 from stages import build_stages, overall_status
 
@@ -35,7 +37,11 @@ _config_problems = config.validate()
 for _p in _config_problems:
     print(f"[config] WARNING: {_p}")
 
-app = FastAPI(title="BindCraft GUI")
+# Deny-by-default auth: enforce_auth runs on EVERY route, requiring a valid JWT
+# for all paths except authpolicy.PUBLIC_API_PATHS (/api/health) and static/SPA
+# paths. No-op when BINDGUI_AUTH_ENABLED=false. Being a global dependency (not
+# per-endpoint) means a newly added route is protected automatically.
+app = FastAPI(title="BindCraft GUI", dependencies=[Depends(auth.enforce_auth)])
 
 # Allow the Vite dev server and any configured origins to call the API.
 cors_origins = list(config.CORS_ORIGINS) + ["http://localhost:5173"]
