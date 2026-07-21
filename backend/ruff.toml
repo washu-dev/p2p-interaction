@@ -19,4 +19,18 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"backend/pipeline/*.py" = ["S", "B", "E501"]   # HPC helper scripts — shell calls and long lines are intentional
+# Match whether ruff is run from the repo root (backend/pipeline/…) or from
+# backend/ (pipeline/…). HPC helper scripts — shell calls and long lines are intentional.
+"**/pipeline/*.py" = ["S", "B", "E501"]
+
+[lint.isort]
+# Declare the backend's own modules as first-party so import ordering is the
+# SAME whether ruff runs from the repo root (CI: `ruff check backend/`) or from
+# inside backend/ (`ruff check`). Without this, ruff can't tell these are local
+# when invoked from the root and reorders them, causing spurious I001.
+known-first-party = [
+    "auth", "authpolicy", "config", "config_loader", "configschema", "db",
+    "fetch_secrets", "graphs", "kinase_families", "main", "notify",
+    "publish_run", "resultsdb", "runner", "sshconn", "stages",
+    "targetlibrary", "uniprot",
+]
