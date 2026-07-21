@@ -176,13 +176,18 @@ jobs:
             --query taskDefinition \
             > task-definition.json
 
-      - name: Inject new image into task definition
+      - name: Inject new image + secrets into task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
           container-name:  ${{ env.CONTAINER_NAME }}
           image:           ${{ needs.build.outputs.image }}
+          # Pulled from a GitHub Actions secret so the key never appears in
+          # code, logs, or the AWS console — GitHub redacts registered
+          # secrets from all workflow output automatically.
+          environment-variables: |
+            BINDGUI_SENDGRID_API_KEY=${{ secrets.SENDGRID_API_KEY }}
 
       - name: Deploy to ECS service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
