@@ -5,5 +5,12 @@
   "BINDGUI_ENTRA_TENANT_ID": "4ccca3b5-71cd-4e6d-974b-4d9beb96c6d6",
   "BINDGUI_ENTRA_CLIENT_ID": "cce825ec-e1df-4308-b84f-2cb0d2eb6550",
   "BINDGUI_APP_URL": "https://d5j3l1rgzmla.cloudfront.net",
-  "BINDGUI_EMAIL_SENDER": "di2accelerator@wustl.edu"
+  "BINDGUI_EMAIL_SENDER": "di2accelerator@wustl.edu",
+  "BINDGUI_SSH_HOST": "c2-login-001.ris.wustl.edu",
+  "BINDGUI_SSH_USER": "d.mingyue",
+  "BINDGUI_REMOTE_DIR": "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/bindgui",
+  "BINDGUI_BINDCRAFT_DIR": "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/BindCraft",
+  "BINDGUI_MAMBA_ROOT": "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/BindCraft/Y",
+  "BINDGUI_COLABFOLD_BIN": "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/localcolabfold/.pixi/envs/default/bin",
+  "BINDGUI_TARGET_FASTA_DIR": "/storage1/fs1/rmitra/Active/minibinders/d.mingyue/kinase_panel"
 }
