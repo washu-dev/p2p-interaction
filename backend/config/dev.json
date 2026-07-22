@@ -1,6 +1,8 @@
 {
   "BINDGUI_BACKEND": "ssh",
   "BINDGUI_AUTH_ENABLED": "true",
+  "BINDGUI_ENTRA_TENANT_ID": "4ccca3b5-71cd-4e6d-974b-4d9beb96c6d6",
+  "BINDGUI_ENTRA_CLIENT_ID": "cce825ec-e1df-4308-b84f-2cb0d2eb6550",
   "BINDGUI_APP_URL": "localhost:3000",
   "BINDGUI_EMAIL_SENDER": "di2accelerator@wustl.edu"
 }
