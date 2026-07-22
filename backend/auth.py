@@ -43,11 +43,20 @@ def _validate_jwt(token: str) -> dict:
         token,
         key.key,
         algorithms=["RS256"],
-        # User.Read access tokens have aud = Microsoft Graph
-        audience="00000003-0000-0000-c000-000000000000",
-        issuer=f"{config.AUTHORITY}/v2.0",
+        # Token is minted for our OWN API (Entra "Expose an API" -> access_as_user).
+        # aud is the client-id GUID for v2 tokens or api://<client-id> for v1 —
+        # accept both so this works regardless of requestedAccessTokenVersion.
+        audience=[config.ENTRA_CLIENT_ID, f"api://{config.ENTRA_CLIENT_ID}"],
         options={"verify_exp": True},
     )
+    # Issuer differs by token version (v2: .../v2.0, v1: sts.windows.net/<tenant>/).
+    # PyJWT takes only a single issuer, so validate against both manually.
+    valid_issuers = {
+        f"{config.AUTHORITY}/v2.0",
+        f"https://sts.windows.net/{config.ENTRA_TENANT_ID}/",
+    }
+    if claims.get("iss") not in valid_issuers:
+        raise jwt.InvalidIssuerError(f"unexpected issuer: {claims.get('iss')}")
     return claims
 
 
