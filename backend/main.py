@@ -93,38 +93,47 @@ def refresh(job):
 
 
 def _maybe_publish(job):
-    """If the user consented, publish results to the binder library (idempotent)."""
-    if resultsdb is None or not job["settings"].get("make_public"):
+    """If the user consented, publish results to the binder library (idempotent).
+
+    Tracked via jobs.published in the DB, not a local flag file: ECS/Fargate
+    disk is per-task and ephemeral, so a file-based flag doesn't survive task
+    restarts or multiple replicas and silently allows repeat publishing.
+    """
+    if resultsdb is None or not job["settings"].get("make_public") or job.get("published"):
         return
     d = job_dir(job["id"])
-    flag = d / "published.flag"
     sel = d / "selectivity.json"
-    if flag.exists() or not sel.exists():
+    if not sel.exists():
         return
     try:
         design = json.loads((d / "design_result.json").read_text()) if (d / "design_result.json").exists() else {}
         selectivity = json.loads(sel.read_text())
         resultsdb.publish(job, design, selectivity, submitted_by=job["settings"].get("submitted_by") or "unknown")
-        flag.write_text("1")
+        db.update_job(job["id"], published=1)
     except Exception as e:  # noqa: BLE001 — never let publishing break polling
         print(f"[results-library] publish failed for {job['id']}: {e}")
 
 
 def _maybe_notify(job):
-    """Email the submitter once when a run reaches COMPLETED/FAILED (idempotent)."""
-    d = job_dir(job["id"])
-    flag = d / "notified.flag"
-    if flag.exists():
+    """Email the submitter once when a run reaches COMPLETED/FAILED (idempotent).
+
+    Tracked via jobs.notified in the DB, not a local flag file: ECS/Fargate
+    disk is per-task and ephemeral, so a file-based flag doesn't survive task
+    restarts or multiple replicas — the exact bug that caused one job to
+    re-email its submitter roughly every minute in production instead of once.
+    """
+    if job.get("notified"):
         return
     to = (job.get("settings") or {}).get("submitted_by") or ""
     if "@" not in to:
         return
     try:
+        d = job_dir(job["id"])
         if job["status"] == "COMPLETED":
             notify.notify_completed(job, d, to)
         else:
             notify.notify_failed(job, to)
-        flag.write_text("1")
+        db.update_job(job["id"], notified=1)
     except Exception as e:  # noqa: BLE001 — a broken mailer must never break job polling
         print(f"[notify] failed for {job['id']}: {e}")
 

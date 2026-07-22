@@ -33,6 +33,7 @@ _JSON_COLS = {"settings", "stages"}
 _COLUMNS = {
     "id", "name", "status", "params_key", "mode", "input_type", "target_name",
     "settings", "stages", "result_path", "error", "created_at", "updated_at",
+    "notified", "published",
 }
 
 
@@ -109,11 +110,22 @@ def init_db():
                 result_path  TEXT,
                 error        TEXT,
                 created_at   DOUBLE PRECISION,
-                updated_at   DOUBLE PRECISION
+                updated_at   DOUBLE PRECISION,
+                notified     INTEGER DEFAULT 0,  -- email sent for this terminal state?
+                published    INTEGER DEFAULT 0   -- published to the binder library?
             )
         """)
         _exec(cur, "CREATE INDEX IF NOT EXISTS idx_params_key ON jobs(params_key)")
         conn.commit()
+        # CREATE TABLE IF NOT EXISTS is a no-op on a table that predates the
+        # notified/published columns — add them directly. Tolerates "column
+        # already exists" so this is safe to run on every startup.
+        for col in ("notified", "published"):
+            try:
+                _exec(cur, f"ALTER TABLE jobs ADD COLUMN {col} INTEGER DEFAULT 0")
+                conn.commit()
+            except Exception:  # noqa: BLE001 — column already exists on repeat startups
+                conn.rollback()
     finally:
         conn.close()
 
