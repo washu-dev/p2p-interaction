@@ -118,16 +118,36 @@ def init_db():
         _exec(cur, "CREATE INDEX IF NOT EXISTS idx_params_key ON jobs(params_key)")
         conn.commit()
         # CREATE TABLE IF NOT EXISTS is a no-op on a table that predates the
-        # notified/published columns — add them directly. Tolerates "column
-        # already exists" so this is safe to run on every startup.
+        # notified/published columns — add them directly, but only when they're
+        # actually missing: ALTER TABLE ADD COLUMN takes a brief ACCESS EXCLUSIVE
+        # lock in Postgres, and during an ECS rolling deploy the outgoing task is
+        # still holding connections against the same table. Checking first means
+        # a healthy, already-migrated deploy never attempts the ALTER at all; a
+        # lock_timeout bounds the rare case where it's genuinely still needed, so
+        # a new task can never hang its own startup (and thus its health check)
+        # waiting on a lock the old task is holding.
         for col in ("notified", "published"):
+            if _has_column(conn, "jobs", col):
+                continue
             try:
+                if _pg():
+                    _exec(cur, "SET lock_timeout = '5s'")
                 _exec(cur, f"ALTER TABLE jobs ADD COLUMN {col} INTEGER DEFAULT 0")
                 conn.commit()
-            except Exception:  # noqa: BLE001 — column already exists on repeat startups
+            except Exception as e:  # noqa: BLE001 — lock contention; safe to skip, retried next startup
                 conn.rollback()
+                print(f"[db] could not add column '{col}' this startup (will retry next deploy): {e}")
     finally:
         conn.close()
+
+
+def _has_column(conn, table: str, col: str) -> bool:
+    cur = conn.cursor()
+    if _pg():
+        _exec(cur, "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?", (table, col))
+        return cur.fetchone() is not None
+    cur.execute(f"PRAGMA table_info({table})")  # noqa: S608 — table name is a hardcoded literal, never user input
+    return any(r[1] == col for r in cur.fetchall())
 
 
 def create_job(job):
