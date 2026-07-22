@@ -1,7 +1,9 @@
 {
   "_comment": "OPEN (non-secret) config for the prod environment. Secrets live in AWS Secrets Manager, not here: the whole DB connection (DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD from the MiniBinders/database/* group), BINDGUI_SENDGRID_API_KEY, and BINDGUI_SSH_KEY_PASSPHRASE — all materialized at startup by fetch_secrets.py. Bootstrap-only vars read before the app starts (BINDGUI_ENV, BINDGUI_FETCH_SECRETS) stay as task-definition env vars. Reflects current prod: still on the mock backend until the RIS SSH path is wired — flip BINDGUI_BACKEND to ssh and set the SSH_* keys when ready.",
-  "BINDGUI_BACKEND": "slurm",
+  "BINDGUI_BACKEND": "ssh",
   "BINDGUI_AUTH_ENABLED": "true",
+  "BINDGUI_ENTRA_TENANT_ID": "4ccca3b5-71cd-4e6d-974b-4d9beb96c6d6",
+  "BINDGUI_ENTRA_CLIENT_ID": "cce825ec-e1df-4308-b84f-2cb0d2eb6550",
   "BINDGUI_APP_URL": "https://d5j3l1rgzmla.cloudfront.net",
   "BINDGUI_EMAIL_SENDER": "di2accelerator@wustl.edu"
 }
