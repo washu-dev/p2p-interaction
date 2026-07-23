@@ -59,10 +59,17 @@ def _exec(cur, sql: str, args: tuple | list = ()):
 
     Values are NEVER formatted into `sql`; we only translate the placeholder
     token to psycopg's `%s`. This keeps every query parameterized by design.
+
+    A parameterless query is sent with no params at all: psycopg only scans for
+    `%s` placeholders when parameters are supplied, so this keeps a stray `%`/`?`
+    in DDL text (e.g. inside an SQL comment) from being miscounted as a
+    placeholder — which would raise "N placeholders but 0 parameters were passed".
     """
     if _pg():
         sql = sql.replace("?", "%s")
-    cur.execute(sql, args)
+        cur.execute(sql, args if args else None)
+    else:
+        cur.execute(sql, args)
 
 
 def _rows(cur):
@@ -111,8 +118,8 @@ def init_db():
                 error        TEXT,
                 created_at   DOUBLE PRECISION,
                 updated_at   DOUBLE PRECISION,
-                notified     INTEGER DEFAULT 0,  -- email sent for this terminal state?
-                published    INTEGER DEFAULT 0   -- published to the binder library?
+                notified     INTEGER DEFAULT 0,  -- email sent for this terminal state
+                published    INTEGER DEFAULT 0   -- published to the binder library
             )
         """)
         _exec(cur, "CREATE INDEX IF NOT EXISTS idx_params_key ON jobs(params_key)")
