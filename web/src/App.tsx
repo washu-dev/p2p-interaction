@@ -383,8 +383,11 @@ export default function App() {
     return (
       <div className="layout" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
         <div style={{ maxWidth: 480, width: "100%", padding: "0 24px", textAlign: "center" }}>
-          <img src="/washu-logo.svg" alt="Washington University in St. Louis" style={{ height: 48, marginBottom: 20 }}
-            onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 22 }}>
+            <img src="/washu-logo.png" alt="" style={{ height: 44 }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700, fontSize: "1.6rem", color: "var(--ink)" }}>WashU</span>
+          </div>
           <h1 style={{ fontSize: "2rem", marginBottom: 8, fontFamily: "var(--font-serif)" }}>Selective Binder Platform</h1>
           <p style={{ color: "var(--muted)", marginBottom: 32 }}>
             Design kinase binders from a sequence or structure, then profile their selectivity.
@@ -423,8 +426,10 @@ export default function App() {
       <div className="simple-shell">
         <div className="simple-topbar">
           <div className="brandmark">
-            <img src="/washu-logo.svg" alt="Washington University in St. Louis"
+            <img src="/washu-logo.png" alt="Washington University in St. Louis"
               onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <span className="wu-word">WashU</span>
+            <span className="brandmark-divider" />
             <b>Selective Binder Platform</b>
           </div>
           <div className="row">
@@ -1004,6 +1009,11 @@ export default function App() {
   return (
     <div className="layout">
       <aside>
+        <div className="brandmark">
+          <img src="/washu-logo.png" alt="Washington University in St. Louis"
+            onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <span className="wu-word">WashU</span>
+        </div>
         <h2>Selective Binder</h2>
         <div className="tag">BindCraft design workspace</div>
         <span className="mode">mode: {cfg.mode}</span>
