@@ -383,7 +383,9 @@ export default function App() {
     return (
       <div className="layout" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
         <div style={{ maxWidth: 480, width: "100%", padding: "0 24px", textAlign: "center" }}>
-          <h1 style={{ fontSize: "2rem", marginBottom: 8 }}>🧬 Selective Binder Platform</h1>
+          <img src="/washu-logo.svg" alt="Washington University in St. Louis" style={{ height: 48, marginBottom: 20 }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <h1 style={{ fontSize: "2rem", marginBottom: 8, fontFamily: "var(--font-serif)" }}>Selective Binder Platform</h1>
           <p style={{ color: "var(--muted)", marginBottom: 32 }}>
             Design kinase binders from a sequence or structure, then profile their selectivity.
             Sign in with your WashU account to continue.
@@ -420,7 +422,11 @@ export default function App() {
     return (
       <div className="simple-shell">
         <div className="simple-topbar">
-          <div className="row" style={{ gap: 8 }}><span style={{ fontSize: 22 }}>🧬</span><b>Selective Binder Platform</b></div>
+          <div className="brandmark">
+            <img src="/washu-logo.svg" alt="Washington University in St. Louis"
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <b>Selective Binder Platform</b>
+          </div>
           <div className="row">
             <span className="small" style={{ color: "var(--muted)" }}>👤 {userName}</span>
             <button className="btn ghost" onClick={() => setMode("advanced")}>⚙️ Advanced</button>
@@ -998,7 +1004,7 @@ export default function App() {
   return (
     <div className="layout">
       <aside>
-        <h2>🧬 Selective Binder</h2>
+        <h2>Selective Binder</h2>
         <div className="tag">BindCraft design workspace</div>
         <span className="mode">mode: {cfg.mode}</span>
         <hr />
