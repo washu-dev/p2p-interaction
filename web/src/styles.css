@@ -25,7 +25,7 @@ body {
 }
 .layout { display:grid; grid-template-columns:262px 1fr; min-height:100vh; }
 aside {
-  background:var(--wu-red);
+  background:var(--wu-green);
   color:#fff; padding:22px 16px; display:flex; flex-direction:column; gap:6px;
 }
 aside h2 { margin:0; font-size:18px; font-family:var(--font-serif); }
@@ -40,10 +40,10 @@ aside hr { border:0; border-top:1px solid rgba(255,255,255,.22); margin:14px 0; 
   color:#fff; font:inherit; font-size:13.5px; display:flex; gap:9px; align-items:center;
 }
 .navbtn:hover { border-color:#fff; background:rgba(255,255,255,.1); }
-.navbtn.active { background:var(--wu-red-dark); border-color:var(--wu-red-dark); color:#fff; font-weight:600; }
+.navbtn.active { background:var(--wu-green-dark); border-color:var(--wu-green-dark); color:#fff; font-weight:600; }
 .navbtn .n { width:20px; height:20px; border-radius:50%; background:rgba(255,255,255,.22);
   display:grid; place-items:center; font-size:11px; flex:none; }
-.navbtn.done .n { background:#fff; color:var(--wu-red-dark); }
+.navbtn.done .n { background:#fff; color:var(--wu-green-dark); }
 .status { font-size:12.5px; color:rgba(255,255,255,.8); }
 .status b { color:#fff; }
 .mode { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.18); color:#fff; align-self:flex-start; }
@@ -65,8 +65,8 @@ h1.title { font-size:30px; margin:.1rem 0 .3rem; color:var(--ink); font-family:v
   font-weight:800; text-transform:uppercase; letter-spacing:.01em; }
 .hero p { margin:0; font-size:1.12rem; opacity:.92; font-family:var(--font-serif); }
 .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
-.card { padding:1.1rem 1.15rem; border:1px solid var(--wu-red); border-radius:2px; background:#fff; }
-.card h4 { color:var(--wu-red-dark); margin:.2rem 0 .35rem; font-family:var(--font-serif); }
+.card { padding:1.1rem 1.15rem; border:1px solid var(--line); border-radius:2px; background:#fff; }
+.card h4 { color:var(--ink); margin:.2rem 0 .35rem; font-family:var(--font-serif); }
 .card .small { color:var(--muted); font-size:.86rem; }
 .panel { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:20px 22px;
   margin-bottom:16px; }
